@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ONLINE
+  GETTING_BORED
+  IN_CHAT
+}
+
+enum PulseMediaType {
+  IMAGE
+  VIDEO
+}
+
+model User {
+  id                String     @id @default(cuid())
+  anonymousUsername String     @unique
+  googleId          String?    @unique
+  email             String?    @unique
+  status            UserStatus @default(ONLINE)
+  lastActiveAt      DateTime   @default(now())
+  createdAt         DateTime   @default(now())
+
+  createdChats Chat[] @relation("ChatUser1")
+  joinedChats  Chat[] @relation("ChatUser2")
+  messages     Message[]
+  pulses       WorkPulse[]
+  applauds     PulseApplaud[]
+  notes        PulseNote[]
+}
+
+model WorkPulse {
+  id        String          @id @default(cuid())
+  authorId  String
+  text      String          @db.VarChar(500)
+  mediaUrl  String?
+  mediaType PulseMediaType?
+  isBreakBrief Boolean @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  author    User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  applauds  PulseApplaud[]
+  notes     PulseNote[]
+
+  @@index([createdAt])
+}
+
+model PulseApplaud {
+  userId  String
+  pulseId String
+  createdAt DateTime @default(now())
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pulse WorkPulse @relation(fields: [pulseId], references: [id], onDelete: Cascade)
+
+  @@id([userId, pulseId])
+  @@index([pulseId])
+}
+
+model PulseNote {
+  id        String   @id @default(cuid())
+  pulseId   String
+  authorId  String
+  text      String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  pulse  WorkPulse @relation(fields: [pulseId], references: [id], onDelete: Cascade)
+  author User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([pulseId, createdAt])
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user2Id   String
+  createdAt DateTime @default(now())
+  endedAt   DateTime?
+
+  user1 User @relation("ChatUser1", fields: [user1Id], references: [id])
+  user2 User @relation("ChatUser2", fields: [user2Id], references: [id])
+
+  messages Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  senderId  String
+  text      String
+  createdAt DateTime @default(now())
+
+  chat   Chat @relation(fields: [chatId], references: [id])
+  sender User @relation(fields: [senderId], references: [id])
+}
