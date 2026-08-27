@@ -92,6 +92,7 @@ model WorkPulse {
   text      String          @db.VarChar(500)
   mediaUrl  String?
   mediaType PulseMediaType?
+  locationLabel String? @db.VarChar(160)
   isBreakBrief Boolean @default(false)
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
