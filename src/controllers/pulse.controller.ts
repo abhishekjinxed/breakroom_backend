@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 
 const pulseSchema = z.object({
-  text: z.string().trim().max(500),
+  text: z.string().trim().max(200),
   mediaUrl: z.string().url().optional(),
   mediaType: z.enum(["IMAGE", "VIDEO"]).optional(),
   isBreakBrief: z.boolean().optional(),
@@ -30,7 +30,10 @@ export async function listPulses(req: AuthenticatedRequest, res: Response) {
 export async function createPulse(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const parsed = pulseSchema.safeParse(req.body);
-  if (!parsed.success || (!!parsed.data.mediaUrl !== !!parsed.data.mediaType) || (parsed.data.isBreakBrief && parsed.data.mediaType !== "VIDEO")) return res.status(400).json({ success: false, message: "Break Briefs require a video." });
+  if (!parsed.success || (!!parsed.data.mediaUrl !== !!parsed.data.mediaType)) return res.status(400).json({ success: false, message: "Add a valid message or media attachment." });
+  if (parsed.data.isBreakBrief && parsed.data.mediaType !== "VIDEO") return res.status(400).json({ success: false, message: "Break Briefs require a video." });
+  if (!parsed.data.isBreakBrief && parsed.data.mediaType === "VIDEO") return res.status(400).json({ success: false, message: "Office Pulses support one photo and text only." });
+  if (!parsed.data.isBreakBrief && parsed.data.text.length > 160) return res.status(400).json({ success: false, message: "Office Pulse text is limited to 160 characters." });
   const pulse = await prisma.workPulse.create({ data: { authorId: req.userId, ...parsed.data }, include: pulseInclude(req.userId) });
   const { applauds, ...payload } = pulse;
   return res.status(201).json({ success: true, pulse: { ...payload, applaudedByMe: false } });

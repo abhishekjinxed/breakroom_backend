@@ -1,0 +1,5 @@
+ALTER TABLE "User"
+  ADD COLUMN "bio" VARCHAR(160),
+  ADD COLUMN "dateOfBirth" TIMESTAMP(3),
+  ADD COLUMN "gender" VARCHAR(40),
+  ADD COLUMN "socialLink" VARCHAR(500);

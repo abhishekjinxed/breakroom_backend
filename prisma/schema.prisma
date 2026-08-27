@@ -35,6 +35,10 @@ model User {
   anonymousUsername String     @unique
   googleId          String?    @unique
   email             String?    @unique
+  bio               String?    @db.VarChar(160)
+  dateOfBirth       DateTime?
+  gender            String?    @db.VarChar(40)
+  socialLink        String?    @db.VarChar(500)
   termsAcceptedAt   DateTime?
   status            UserStatus @default(ONLINE)
   lastActiveAt      DateTime   @default(now())
