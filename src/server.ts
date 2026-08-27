@@ -10,6 +10,7 @@ import userRoutes from "./routes/user.routes";
 import boredRoutes from "./routes/bored.routes";
 import chatRoutes from "./routes/chat.routes";
 import pulseRoutes from "./routes/pulse.routes";
+import safetyRoutes from "./routes/safety.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -36,6 +37,7 @@ app.use("/api", userRoutes);
 app.use("/api/bored", boredRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/pulses", pulseRoutes);
+app.use("/api/safety", safetyRoutes);
 
 const httpServer = http.createServer(app);
 
@@ -72,6 +74,11 @@ io.on("connection", (socket) => {
 
   socket.on("chat:join", async (chatId: string) => {
     try {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true } });
+      if (!user?.termsAcceptedAt) {
+        socket.emit("chat:error", { message: "Accept the Terms of Use before joining a conversation." });
+        return;
+      }
       const chat = await prisma.chat.findFirst({
         where: {
           id: chatId,
@@ -123,6 +130,11 @@ io.on("connection", (socket) => {
       text: string;
     }) => {
       try {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true } });
+        if (!user?.termsAcceptedAt) {
+          socket.emit("chat:error", { message: "Accept the Terms of Use before sending messages." });
+          return;
+        }
         const messageText = text?.trim();
 
         if (!messageText) {

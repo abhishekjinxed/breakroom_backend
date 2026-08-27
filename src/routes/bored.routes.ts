@@ -9,12 +9,14 @@ import {
 import {
   authenticate,
 } from "../middleware/auth.middleware";
+import { requireTermsAcceptance } from "../middleware/terms.middleware";
 
 const router = Router();
 
 router.post(
   "/join",
   authenticate,
+  requireTermsAcceptance,
   joinBored
 );
 

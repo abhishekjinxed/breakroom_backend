@@ -24,6 +24,7 @@ export async function getMe(
         status: true,
         createdAt: true,
         lastActiveAt: true,
+        termsAcceptedAt: true,
       },
     });
 

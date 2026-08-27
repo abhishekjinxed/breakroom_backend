@@ -21,7 +21,9 @@ const pulseInclude = (userId: string) => ({
 
 export async function listPulses(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  const pulses = await prisma.workPulse.findMany({ where: req.query.briefs === "true" ? { isBreakBrief: true } : undefined, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId) });
+  const blocks = await prisma.userBlock.findMany({ where: { blockerId: req.userId }, select: { blockedId: true } });
+  const blockedIds = blocks.map((block) => block.blockedId);
+  const pulses = await prisma.workPulse.findMany({ where: { ...(req.query.briefs === "true" ? { isBreakBrief: true } : {}), ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}) }, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId) });
   return res.json({ success: true, pulses: pulses.map(({ applauds, ...pulse }) => ({ ...pulse, applaudedByMe: applauds.length > 0 })) });
 }
 
