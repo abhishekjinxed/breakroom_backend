@@ -23,6 +23,17 @@ const userSelect = {
   socialLink: true,
 } as const;
 
+// Public profiles deliberately omit email, Google identity, date of birth, and
+// presence data. Those fields are account-only and must not be discoverable.
+const publicProfileSelect = {
+  id: true,
+  anonymousUsername: true,
+  bio: true,
+  gender: true,
+  socialLink: true,
+  createdAt: true,
+} as const;
+
 export async function getMe(
   req: AuthenticatedRequest,
   res: Response
@@ -79,5 +90,20 @@ export async function updateMyProfile(req: AuthenticatedRequest, res: Response) 
     },
     select: userSelect,
   });
+  return res.json({ success: true, user });
+}
+
+export async function getPublicProfile(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.userId !== "string") return res.status(400).json({ success: false, message: "Invalid member." });
+
+  const userId = req.params.userId;
+  const blocked = await prisma.userBlock.findFirst({
+    where: { OR: [{ blockerId: req.userId, blockedId: userId }, { blockerId: userId, blockedId: req.userId }] },
+    select: { blockerId: true },
+  });
+  if (blocked) return res.status(404).json({ success: false, message: "Member not found." });
+
+  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
+  if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   return res.json({ success: true, user });
 }
