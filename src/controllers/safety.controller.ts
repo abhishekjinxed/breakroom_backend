@@ -40,16 +40,7 @@ export async function acceptTerms(req: AuthenticatedRequest, res: Response) {
 
 export async function deleteMyAccount(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  const userId = req.userId;
-  await prisma.$transaction(async (tx) => {
-    const chats = await tx.chat.findMany({ where: { OR: [{ user1Id: userId }, { user2Id: userId }] }, select: { id: true } });
-    if (chats.length) {
-      const chatIds = chats.map((chat) => chat.id);
-      await tx.message.deleteMany({ where: { chatId: { in: chatIds } } });
-      await tx.chat.deleteMany({ where: { id: { in: chatIds } } });
-    }
-    await tx.user.delete({ where: { id: userId } });
-  });
+  await prisma.user.update({ where: { id: req.userId }, data: { deletedAt: new Date(), status: "DEACTIVATED", termsAcceptedAt: null } });
   return res.json({ success: true });
 }
 

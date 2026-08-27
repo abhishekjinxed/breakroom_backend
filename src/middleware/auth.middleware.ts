@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../lib/auth";
+import { prisma } from "../lib/prisma";
 
 export interface AuthenticatedRequest extends Request {
   userId?: string;
 }
 
-export function authenticate(
+export async function authenticate(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
@@ -30,6 +31,11 @@ export function authenticate(
     }
 
     const payload = verifyToken(token);
+
+    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true } });
+    if (!user || user.deletedAt) {
+      return res.status(401).json({ success: false, message: "Account is no longer active" });
+    }
 
     req.userId = payload.userId;
 

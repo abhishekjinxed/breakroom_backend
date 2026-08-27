@@ -14,6 +14,7 @@ export async function googleLogin(req: Request, res: Response) {
     const payload = ticket.getPayload();
     if (!payload?.sub || !payload.email || !payload.email_verified) return res.status(401).json({ success: false, message: "Invalid Google account" });
     let user = await prisma.user.findUnique({ where: { googleId: payload.sub } });
+    if (user?.deletedAt) return res.status(403).json({ success: false, message: "This account has been deleted." });
     if (!user) {
       const username = `Professional${Math.floor(100000 + Math.random() * 900000)}`;
       user = await prisma.user.create({ data: { googleId: payload.sub, email: payload.email, anonymousUsername: username } });

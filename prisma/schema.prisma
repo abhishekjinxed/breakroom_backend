@@ -10,6 +10,7 @@ enum UserStatus {
   ONLINE
   GETTING_BORED
   IN_CHAT
+  DEACTIVATED
 }
 
 enum PulseMediaType {
@@ -39,6 +40,7 @@ model User {
   dateOfBirth       DateTime?
   gender            String?    @db.VarChar(40)
   socialLink        String?    @db.VarChar(500)
+  deletedAt         DateTime?
   termsAcceptedAt   DateTime?
   status            UserStatus @default(ONLINE)
   lastActiveAt      DateTime   @default(now())

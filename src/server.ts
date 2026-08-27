@@ -49,7 +49,7 @@ const io = new Server(httpServer, {
 
 initializeSocket(io);
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
 
@@ -58,6 +58,9 @@ io.use((socket, next) => {
     }
 
     const payload = verifyToken(token);
+
+    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true } });
+    if (!user || user.deletedAt) return next(new Error("Account is no longer active"));
 
     socket.data.userId = payload.userId;
 
