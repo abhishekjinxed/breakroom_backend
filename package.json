@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "start": "prisma migrate deploy && node dist/server.js",
     "build": "prisma generate && tsc"
   },
   "keywords": [],
