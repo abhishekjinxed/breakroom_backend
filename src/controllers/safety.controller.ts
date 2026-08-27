@@ -9,6 +9,13 @@ const reportSchema = z.object({
   reason: z.string().trim().min(3).max(500),
   details: z.string().trim().max(1000).optional(),
 });
+const statusSchema = z.object({ status: z.enum(["REVIEWED", "DISMISSED"]) });
+
+async function requireModerator(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+  const moderators = (process.env.MODERATOR_EMAILS ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
+  return !!user?.email && moderators.includes(user.email.toLowerCase());
+}
 
 export async function reportContent(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
@@ -44,4 +51,18 @@ export async function deleteMyAccount(req: AuthenticatedRequest, res: Response) 
     await tx.user.delete({ where: { id: userId } });
   });
   return res.json({ success: true });
+}
+
+export async function listReports(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || !(await requireModerator(req.userId))) return res.status(403).json({ success: false, message: "Moderator access required" });
+  const reports = await prisma.contentReport.findMany({ orderBy: { createdAt: "desc" }, include: { reporter: { select: { id: true, anonymousUsername: true } } } });
+  return res.json({ success: true, reports });
+}
+
+export async function resolveReport(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || !(await requireModerator(req.userId)) || typeof req.params.reportId !== "string") return res.status(403).json({ success: false, message: "Moderator access required" });
+  const parsed = statusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Invalid moderation status" });
+  const report = await prisma.contentReport.update({ where: { id: req.params.reportId }, data: { status: parsed.data.status, reviewedAt: new Date() } });
+  return res.json({ success: true, report });
 }
