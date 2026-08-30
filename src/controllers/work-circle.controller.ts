@@ -25,6 +25,7 @@ export async function requestConnection(req: AuthenticatedRequest, res: Response
   const recipient = await prisma.user.findFirst({ where: { id: recipientId, deletedAt: null }, select: { id: true } });
   if (!recipient) return res.status(404).json({ success: false, message: "Member not found." });
 
+  const requestType = req.body?.requestType === "PLANE" ? "PLANE" : "EMPTY_DESK";
   const existing = await prisma.workCircleConnection.findFirst({ where: { OR: [{ requesterId, recipientId }, { requesterId: recipientId, recipientId: requesterId }] } });
   if (existing?.status === "ACCEPTED") return res.json({ success: true, connection: existing, message: "Already in your Work Circle." });
   if (existing?.requesterId === recipientId && existing.status === "PENDING") {
@@ -37,8 +38,8 @@ export async function requestConnection(req: AuthenticatedRequest, res: Response
   }
   if (existing?.status === "PENDING") return res.status(409).json({ success: false, message: "Your request is awaiting a response." });
   const connection = existing
-    ? await prisma.workCircleConnection.update({ where: { id: existing.id }, data: { requesterId, recipientId, status: "PENDING", respondedAt: null } })
-    : await prisma.workCircleConnection.create({ data: { requesterId, recipientId } });
+    ? await prisma.workCircleConnection.update({ where: { id: existing.id }, data: { requesterId, recipientId, requestType, status: "PENDING", respondedAt: null } })
+    : await prisma.workCircleConnection.create({ data: { requesterId, recipientId, requestType } });
   return res.status(201).json({ success: true, connection, message: "Work Circle request sent." });
 }
 
