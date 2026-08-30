@@ -75,3 +75,15 @@ export function notifyChatLeft(
     io.to(socketId).emit("chat:partner-left", data);
   }
 }
+
+export function notifyPaperPlane(
+  userId: string,
+  data: { id: string; message: string; sender: { id: string; anonymousUsername: string }; expiresAt: Date }
+) {
+  if (!io) return;
+
+  const socketId = userSockets.get(userId);
+  if (socketId) {
+    io.to(socketId).emit("paper_plane:received", data);
+  }
+}

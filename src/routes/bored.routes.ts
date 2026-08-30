@@ -3,6 +3,9 @@ import { Router } from "express";
 import {
   joinBored,
   leaveBoredChat,
+  getPendingPaperPlaneController,
+  respondToPaperPlaneController,
+  sendPaperPlaneController,
   stopLookingController,
 } from "../controllers/bored.controller";
 
@@ -31,4 +34,7 @@ router.post(
   authenticate,
   stopLookingController
 );
+router.get("/paper-plane", authenticate, requireTermsAcceptance, getPendingPaperPlaneController);
+router.post("/paper-plane", authenticate, requireTermsAcceptance, sendPaperPlaneController);
+router.post("/paper-plane/:inviteId/respond", authenticate, requireTermsAcceptance, respondToPaperPlaneController);
 export default router;

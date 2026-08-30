@@ -1,6 +1,8 @@
 import { prisma } from "../lib/prisma";
 import { notifyMatch } from "../socket";
 
+const PAPER_PLANE_TTL_MS = 5 * 60 * 1000;
+
 export async function joinBoredQueue(userId: string) {
   const result = await prisma.$transaction(async (tx) => {
     const currentUser = await tx.user.findUnique({
@@ -317,4 +319,119 @@ export async function stopLooking(
     message:
       "Stopped looking for someone.",
   };
+}
+
+export async function sendPaperPlane(senderId: string, message: string) {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + PAPER_PLANE_TTL_MS);
+
+  return prisma.$transaction(async (tx) => {
+    await tx.paperPlaneInvite.updateMany({
+      where: {
+        status: "PENDING",
+        OR: [
+          { expiresAt: { lte: now } },
+          { senderId },
+        ],
+      },
+      data: {
+        status: "EXPIRED",
+        respondedAt: now,
+      },
+    });
+
+    const candidates = await tx.user.findMany({
+      where: {
+        id: { not: senderId },
+        deletedAt: null,
+        status: { in: ["ONLINE", "GETTING_BORED"] },
+        lastActiveAt: { gte: new Date(now.getTime() - 5 * 60 * 1000) },
+        blocksCreated: { none: { blockedId: senderId } },
+        blocksReceived: { none: { blockerId: senderId } },
+      },
+      select: { id: true, anonymousUsername: true },
+      take: 20,
+      orderBy: { lastActiveAt: "desc" },
+    });
+
+    const recipient = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!recipient) {
+      throw new Error("NO_AVAILABLE_RECIPIENT");
+    }
+
+    const invite = await tx.paperPlaneInvite.create({
+      data: {
+        senderId,
+        recipientId: recipient.id,
+        message,
+        expiresAt,
+      },
+      include: {
+        sender: { select: { id: true, anonymousUsername: true } },
+      },
+    });
+
+    return { invite, recipient };
+  });
+}
+
+export async function getPendingPaperPlane(recipientId: string) {
+  const now = new Date();
+  await prisma.paperPlaneInvite.updateMany({
+    where: { recipientId, status: "PENDING", expiresAt: { lte: now } },
+    data: { status: "EXPIRED", respondedAt: now },
+  });
+
+  return prisma.paperPlaneInvite.findFirst({
+    where: { recipientId, status: "PENDING", expiresAt: { gt: now } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      sender: { select: { id: true, anonymousUsername: true } },
+    },
+  });
+}
+
+export async function respondToPaperPlane(recipientId: string, inviteId: string, accept: boolean) {
+  const now = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const invite = await tx.paperPlaneInvite.findUnique({
+      where: { id: inviteId },
+      include: {
+        sender: { select: { id: true, anonymousUsername: true, status: true } },
+        recipient: { select: { id: true, anonymousUsername: true, status: true } },
+      },
+    });
+
+    if (!invite || invite.recipientId !== recipientId) throw new Error("PAPER_PLANE_NOT_FOUND");
+    if (invite.status !== "PENDING" || invite.expiresAt <= now) {
+      if (invite.status === "PENDING") {
+        await tx.paperPlaneInvite.update({ where: { id: invite.id }, data: { status: "EXPIRED", respondedAt: now } });
+      }
+      throw new Error("PAPER_PLANE_UNAVAILABLE");
+    }
+
+    const claimedInvite = await tx.paperPlaneInvite.updateMany({
+      where: { id: invite.id, status: "PENDING", expiresAt: { gt: now } },
+      data: { status: accept ? "ACCEPTED" : "DECLINED", respondedAt: now },
+    });
+    if (claimedInvite.count !== 1) throw new Error("PAPER_PLANE_UNAVAILABLE");
+
+    if (!accept) return { accepted: false, senderId: invite.senderId };
+
+    if (invite.sender.status === "IN_CHAT" || invite.recipient.status === "IN_CHAT") {
+      await tx.paperPlaneInvite.update({ where: { id: invite.id }, data: { status: "CANCELLED", respondedAt: now } });
+      throw new Error("PAPER_PLANE_UNAVAILABLE");
+    }
+
+    const chat = await tx.chat.create({
+      data: { user1Id: invite.senderId, user2Id: invite.recipientId },
+    });
+    await tx.user.updateMany({
+      where: { id: { in: [invite.senderId, invite.recipientId] } },
+      data: { status: "IN_CHAT", lastActiveAt: now },
+    });
+
+    return { accepted: true, chatId: chat.id, senderId: invite.senderId };
+  });
 }

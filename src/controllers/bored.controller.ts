@@ -1,7 +1,8 @@
 import { Response } from "express";
+import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { joinBoredQueue , leaveChat, } from "../services/bored.service";
-import { notifyChatLeft } from "../socket";
+import { getPendingPaperPlane, joinBoredQueue , leaveChat, respondToPaperPlane, sendPaperPlane } from "../services/bored.service";
+import { notifyChatLeft, notifyMatch, notifyPaperPlane } from "../socket";
 import {
   stopLooking,
 } from "../services/bored.service";
@@ -140,5 +141,53 @@ export async function stopLookingController(
       message:
         "Unable to stop looking",
     });
+  }
+}
+
+const paperPlaneSchema = z.object({ message: z.string().trim().min(1).max(160) });
+const paperPlaneResponseSchema = z.object({ accept: z.boolean() });
+
+export async function sendPaperPlaneController(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  const parsed = paperPlaneSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Write a message up to 160 characters." });
+
+  try {
+    const { invite, recipient } = await sendPaperPlane(req.userId, parsed.data.message);
+    notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, sender: invite.sender, expiresAt: invite.expiresAt });
+    return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt } });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NO_AVAILABLE_RECIPIENT") {
+      return res.status(409).json({ success: false, message: "No one is available for a break right now. Try again shortly." });
+    }
+    console.error("PAPER PLANE ERROR:", error);
+    return res.status(500).json({ success: false, message: "Unable to send your paper plane." });
+  }
+}
+
+export async function getPendingPaperPlaneController(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  const invite = await getPendingPaperPlane(req.userId);
+  return res.json({ success: true, invite });
+}
+
+export async function respondToPaperPlaneController(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.inviteId !== "string") return res.status(400).json({ success: false, message: "Invalid paper plane." });
+  const parsed = paperPlaneResponseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Choose whether to accept the invitation." });
+
+  try {
+    const result = await respondToPaperPlane(req.userId, req.params.inviteId, parsed.data.accept);
+    if (result.accepted && result.chatId) {
+      notifyMatch(req.userId, { chatId: result.chatId });
+      notifyMatch(result.senderId, { chatId: result.chatId });
+    }
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof Error && ["PAPER_PLANE_NOT_FOUND", "PAPER_PLANE_UNAVAILABLE"].includes(error.message)) {
+      return res.status(409).json({ success: false, message: "This paper plane is no longer available." });
+    }
+    console.error("PAPER PLANE RESPONSE ERROR:", error);
+    return res.status(500).json({ success: false, message: "Unable to respond to this paper plane." });
   }
 }
