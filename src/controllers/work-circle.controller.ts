@@ -38,6 +38,18 @@ export async function requestConnection(req: AuthenticatedRequest, res: Response
   return res.status(201).json({ success: true, connection, message: "Work Circle request sent." });
 }
 
+// Work Circle requests are intentionally initiated from a real Breakroom chat,
+// not from browsing profiles. This keeps connections consensual and limits spam.
+export async function requestFromChat(req: AuthenticatedRequest, res: Response) {
+  const userId = req.userId;
+  const chatId = typeof req.params.chatId === "string" ? req.params.chatId : "";
+  if (!userId || !chatId) return res.status(400).json({ success: false, message: "Open a chat before sending a Work Circle request." });
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, OR: [{ user1Id: userId }, { user2Id: userId }] }, select: { user1Id: true, user2Id: true } });
+  if (!chat) return res.status(404).json({ success: false, message: "Chat not found." });
+  (req.params as Record<string, string>).userId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
+  return requestConnection(req, res);
+}
+
 export async function listWorkCircle(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId;
   if (!userId) return res.status(401).json({ success: false, message: "Authentication required" });

@@ -73,6 +73,61 @@ model User {
   receivedPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneRecipient")
   sentConnectionRequests WorkCircleConnection[] @relation("WorkCircleRequester")
   receivedConnectionRequests WorkCircleConnection[] @relation("WorkCircleRecipient")
+  coffeeQueue CoffeeQueue?
+  dailyResponses DailyDeskResponse[]
+  challengeResponses CultureChallengeResponse[]
+  interests UserInterest[]
+  kudosSent Kudos[] @relation("KudosSender")
+  kudosReceived Kudos[] @relation("KudosRecipient")
+}
+
+model CoffeeQueue {
+  userId String @id
+  topic String @db.VarChar(60)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([topic, createdAt])
+}
+
+model DailyDeskResponse {
+  id String @id @default(cuid())
+  userId String
+  promptDate DateTime @db.Date
+  text String @db.VarChar(240)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, promptDate])
+  @@index([promptDate, createdAt])
+}
+
+model CultureChallengeResponse {
+  id String @id @default(cuid())
+  userId String
+  challengeKey String @db.VarChar(40)
+  text String @db.VarChar(160)
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, challengeKey])
+  @@index([challengeKey, createdAt])
+}
+
+model UserInterest {
+  userId String
+  interest String @db.VarChar(40)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([userId, interest])
+}
+
+model Kudos {
+  id String @id @default(cuid())
+  senderId String
+  recipientId String
+  message String @db.VarChar(240)
+  createdAt DateTime @default(now())
+  sender User @relation("KudosSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User @relation("KudosRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  @@index([createdAt])
+  @@index([recipientId, createdAt])
 }
 
 model WorkCircleConnection {
