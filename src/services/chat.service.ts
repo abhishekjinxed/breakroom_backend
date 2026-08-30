@@ -35,6 +35,11 @@ export async function sendMessage(
     throw new Error("CHAT_NOT_FOUND");
   }
 
+  if (chat.isDirect) {
+    const friendship = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ id: chat.connectionId ?? undefined }, { requesterId: chat.user1Id, recipientId: chat.user2Id }, { requesterId: chat.user2Id, recipientId: chat.user1Id }] } });
+    if (!friendship) throw new Error("CHAT_NOT_FOUND");
+  }
+
   const message = await prisma.message.create({
     data: {
       chatId,
@@ -42,6 +47,7 @@ export async function sendMessage(
       text: messageText,
     },
   });
+  await prisma.chat.update({ where: { id: chatId }, data: { lastMessageAt: message.createdAt } });
 
   return message;
 }

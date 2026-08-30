@@ -1,0 +1,10 @@
+ALTER TYPE "WorkCircleStatus" ADD VALUE IF NOT EXISTS 'REMOVED';
+CREATE TYPE "ConnectionRequestType" AS ENUM ('PLANE', 'EMPTY_DESK');
+ALTER TABLE "WorkCircleConnection" ADD COLUMN "requestType" "ConnectionRequestType" NOT NULL DEFAULT 'EMPTY_DESK';
+ALTER TABLE "Chat" ADD COLUMN "connectionId" TEXT;
+ALTER TABLE "Chat" ADD COLUMN "lastMessageAt" TIMESTAMP(3);
+ALTER TABLE "Message" ADD COLUMN "readAt" TIMESTAMP(3);
+CREATE UNIQUE INDEX "Chat_connectionId_key" ON "Chat"("connectionId");
+CREATE INDEX "Chat_isDirect_lastMessageAt_idx" ON "Chat"("isDirect", "lastMessageAt");
+CREATE INDEX "Message_chatId_senderId_readAt_idx" ON "Message"("chatId", "senderId", "readAt");
+ALTER TABLE "Chat" ADD CONSTRAINT "Chat_connectionId_fkey" FOREIGN KEY ("connectionId") REFERENCES "WorkCircleConnection"("id") ON DELETE SET NULL ON UPDATE CASCADE;

@@ -13,6 +13,7 @@ import pulseRoutes from "./routes/pulse.routes";
 import safetyRoutes from "./routes/safety.routes";
 import workCircleRoutes from "./routes/work-circle.routes";
 import cultureRoutes from "./routes/culture.routes";
+import inboxRoutes from "./routes/inbox.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -42,6 +43,7 @@ app.use("/api/pulses", pulseRoutes);
 app.use("/api/safety", safetyRoutes);
 app.use("/api/work-circle", workCircleRoutes);
 app.use("/api/culture", cultureRoutes);
+app.use("/api/conversations", inboxRoutes);
 
 const httpServer = http.createServer(app);
 
@@ -107,6 +109,11 @@ io.on("connection", (socket) => {
         });
 
         return;
+      }
+
+      if (chat.isDirect) {
+        const friendship = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ id: chat.connectionId ?? undefined }, { requesterId: chat.user1Id, recipientId: chat.user2Id }, { requesterId: chat.user2Id, recipientId: chat.user1Id }] } });
+        if (!friendship) { socket.emit("chat:error", { message: "This connection is no longer active." }); return; }
       }
 
       socket.join(`chat:${chatId}`);
@@ -179,6 +186,11 @@ io.on("connection", (socket) => {
           return;
         }
 
+        if (chat.isDirect) {
+          const friendship = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ id: chat.connectionId ?? undefined }, { requesterId: chat.user1Id, recipientId: chat.user2Id }, { requesterId: chat.user2Id, recipientId: chat.user1Id }] } });
+          if (!friendship) { socket.emit("chat:error", { message: "This connection is no longer active." }); return; }
+        }
+
         const message = await prisma.message.create({
           data: {
             chatId,
@@ -186,6 +198,7 @@ io.on("connection", (socket) => {
             text: messageText,
           },
         });
+        await prisma.chat.update({ where: { id: chatId }, data: { lastMessageAt: message.createdAt } });
 
         io.to(`chat:${chatId}`).emit(
           "chat:message",

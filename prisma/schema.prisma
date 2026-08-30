@@ -30,6 +30,12 @@ enum WorkCircleStatus {
   PENDING
   ACCEPTED
   DECLINED
+  REMOVED
+}
+
+enum ConnectionRequestType {
+  PLANE
+  EMPTY_DESK
 }
 
 enum ReportTargetType {
@@ -135,11 +141,13 @@ model WorkCircleConnection {
   requesterId String
   recipientId String
   status      WorkCircleStatus @default(PENDING)
+  requestType ConnectionRequestType @default(EMPTY_DESK)
   createdAt   DateTime         @default(now())
   respondedAt DateTime?
 
   requester User @relation("WorkCircleRequester", fields: [requesterId], references: [id], onDelete: Cascade)
   recipient User @relation("WorkCircleRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  directChat Chat?
 
   @@unique([requesterId, recipientId])
   @@index([recipientId, status])
@@ -241,9 +249,12 @@ model Chat {
   createdAt DateTime @default(now())
   endedAt   DateTime?
   isDirect  Boolean  @default(false)
+  connectionId String? @unique
+  lastMessageAt DateTime?
 
   user1 User @relation("ChatUser1", fields: [user1Id], references: [id])
   user2 User @relation("ChatUser2", fields: [user2Id], references: [id])
+  connection WorkCircleConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
 
   messages Message[]
 }
@@ -254,6 +265,7 @@ model Message {
   senderId  String
   text      String
   createdAt DateTime @default(now())
+  readAt DateTime?
 
   chat   Chat @relation(fields: [chatId], references: [id])
   sender User @relation(fields: [senderId], references: [id])

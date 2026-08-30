@@ -28,7 +28,11 @@ export async function requestConnection(req: AuthenticatedRequest, res: Response
   const existing = await prisma.workCircleConnection.findFirst({ where: { OR: [{ requesterId, recipientId }, { requesterId: recipientId, recipientId: requesterId }] } });
   if (existing?.status === "ACCEPTED") return res.json({ success: true, connection: existing, message: "Already in your Work Circle." });
   if (existing?.requesterId === recipientId && existing.status === "PENDING") {
-    const connection = await prisma.workCircleConnection.update({ where: { id: existing.id }, data: { status: "ACCEPTED", respondedAt: new Date() } });
+    const connection = await prisma.$transaction(async (tx) => {
+      const accepted = await tx.workCircleConnection.update({ where: { id: existing.id }, data: { status: "ACCEPTED", respondedAt: new Date() } });
+      await tx.chat.create({ data: { user1Id: accepted.requesterId, user2Id: accepted.recipientId, isDirect: true, connectionId: accepted.id, lastMessageAt: new Date() } });
+      return accepted;
+    });
     return res.json({ success: true, connection, message: "You are now connected." });
   }
   if (existing?.status === "PENDING") return res.status(409).json({ success: false, message: "Your request is awaiting a response." });
@@ -66,9 +70,21 @@ export async function respondToConnection(req: AuthenticatedRequest, res: Respon
   if (!userId) return res.status(401).json({ success: false, message: "Authentication required" });
   if (typeof accept !== "boolean") return res.status(400).json({ success: false, message: "Choose whether to accept the request." });
   const connectionId = typeof req.params.id === "string" ? req.params.id : "";
-  const updated = await prisma.workCircleConnection.updateMany({ where: { id: connectionId, recipientId: userId, status: "PENDING" }, data: { status: accept ? "ACCEPTED" : "DECLINED", respondedAt: new Date() } });
-  if (!updated.count) return res.status(404).json({ success: false, message: "Request not found." });
-  return res.json({ success: true, status: accept ? "ACCEPTED" : "DECLINED" });
+  const result = await prisma.$transaction(async (tx) => {
+    const request = await tx.workCircleConnection.findFirst({ where: { id: connectionId, recipientId: userId } });
+    if (!request) return null;
+    if (request.status === "ACCEPTED") {
+      const chat = await tx.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId: request.id }, { user1Id: request.requesterId, user2Id: request.recipientId }, { user1Id: request.recipientId, user2Id: request.requesterId }] } });
+      return { status: "ACCEPTED", chatId: chat?.id };
+    }
+    if (request.status !== "PENDING") return null;
+    if (!accept) { await tx.workCircleConnection.update({ where: { id: request.id }, data: { status: "DECLINED", respondedAt: new Date() } }); return { status: "DECLINED" }; }
+    await tx.workCircleConnection.update({ where: { id: request.id }, data: { status: "ACCEPTED", respondedAt: new Date() } });
+    const chat = await tx.chat.create({ data: { user1Id: request.requesterId, user2Id: request.recipientId, isDirect: true, connectionId: request.id, lastMessageAt: new Date() } });
+    return { status: "ACCEPTED", chatId: chat.id };
+  });
+  if (!result) return res.status(404).json({ success: false, message: "Request not found." });
+  return res.json({ success: true, ...result });
 }
 
 export async function openDirectChat(req: AuthenticatedRequest, res: Response) {
@@ -78,7 +94,8 @@ export async function openDirectChat(req: AuthenticatedRequest, res: Response) {
   const connection = await prisma.workCircleConnection.findFirst({ where: { id: connectionId, status: "ACCEPTED", OR: [{ requesterId: userId }, { recipientId: userId }] } });
   if (!connection) return res.status(404).json({ success: false, message: "Connection not found." });
   const otherUserId = connection.requesterId === userId ? connection.recipientId : connection.requesterId;
-  let chat = await prisma.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: userId, user2Id: otherUserId }, { user1Id: otherUserId, user2Id: userId }] }, orderBy: { createdAt: "desc" } });
-  if (!chat) chat = await prisma.chat.create({ data: { user1Id: userId, user2Id: otherUserId, isDirect: true } });
+  let chat = await prisma.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId }, { user1Id: userId, user2Id: otherUserId }, { user1Id: otherUserId, user2Id: userId }] }, orderBy: { createdAt: "desc" } });
+  if (chat && !chat.connectionId) chat = await prisma.chat.update({ where: { id: chat.id }, data: { connectionId } });
+  if (!chat) chat = await prisma.chat.create({ data: { user1Id: userId, user2Id: otherUserId, isDirect: true, connectionId, lastMessageAt: new Date() } });
   return res.json({ success: true, chat: { id: chat.id } });
 }
