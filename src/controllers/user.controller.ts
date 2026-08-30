@@ -32,7 +32,16 @@ const publicProfileSelect = {
   gender: true,
   socialLink: true,
   createdAt: true,
+  dateOfBirth: true,
 } as const;
+
+function ageFromDateOfBirth(dateOfBirth: Date | null) {
+  if (!dateOfBirth) return null;
+  const today = new Date();
+  let age = today.getUTCFullYear() - dateOfBirth.getUTCFullYear();
+  const beforeBirthday = today.getUTCMonth() < dateOfBirth.getUTCMonth() || (today.getUTCMonth() === dateOfBirth.getUTCMonth() && today.getUTCDate() < dateOfBirth.getUTCDate());
+  return beforeBirthday ? age - 1 : age;
+}
 
 export async function getMe(
   req: AuthenticatedRequest,
@@ -90,7 +99,8 @@ export async function updateMyProfile(req: AuthenticatedRequest, res: Response) 
     },
     select: userSelect,
   });
-  return res.json({ success: true, user });
+  const { dateOfBirth, ...publicUser } = user;
+  return res.json({ success: true, user: { ...publicUser, age: ageFromDateOfBirth(dateOfBirth) } });
 }
 
 export async function getPublicProfile(req: AuthenticatedRequest, res: Response) {
@@ -105,5 +115,6 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
 
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
-  return res.json({ success: true, user });
+  const { dateOfBirth, ...publicUser } = user;
+  return res.json({ success: true, user: { ...publicUser, age: ageFromDateOfBirth(dateOfBirth) } });
 }

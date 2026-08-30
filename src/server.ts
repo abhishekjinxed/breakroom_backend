@@ -11,6 +11,7 @@ import boredRoutes from "./routes/bored.routes";
 import chatRoutes from "./routes/chat.routes";
 import pulseRoutes from "./routes/pulse.routes";
 import safetyRoutes from "./routes/safety.routes";
+import workCircleRoutes from "./routes/work-circle.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -38,6 +39,7 @@ app.use("/api/bored", boredRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/pulses", pulseRoutes);
 app.use("/api/safety", safetyRoutes);
+app.use("/api/work-circle", workCircleRoutes);
 
 const httpServer = http.createServer(app);
 
