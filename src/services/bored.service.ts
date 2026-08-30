@@ -52,18 +52,14 @@ export async function joinBoredQueue(userId: string) {
       });
     }
 
-    if (currentUser.status === "GETTING_BORED") {
-      return {
-        status: "WAITING" as const,
-        matched: false,
-      };
-    }
-
     await tx.user.update({
       where: {
         id: userId,
       },
       data: {
+        // A user who is already waiting must retry the match too. Returning
+        // early here left two waiting users stranded when a socket event or
+        // their first request was missed.
         status: "GETTING_BORED",
         lastActiveAt: new Date(),
       },
@@ -91,22 +87,61 @@ export async function joinBoredQueue(userId: string) {
       };
     }
 
-    const chat = await tx.chat.create({
-      data: {
-        user1Id: userId,
-        user2Id: otherUser.id,
-      },
-    });
-
-    await tx.user.updateMany({
+    // Claim the candidate atomically. Two join requests can otherwise pick
+    // the same waiting user and create duplicate chats.
+    const claimedOtherUser = await tx.user.updateMany({
       where: {
-        id: {
-          in: [userId, otherUser.id],
-        },
+        id: otherUser.id,
+        status: "GETTING_BORED",
       },
       data: {
         status: "IN_CHAT",
         lastActiveAt: new Date(),
+      },
+    });
+
+    if (claimedOtherUser.count !== 1) {
+      return {
+        status: "WAITING" as const,
+        matched: false,
+      };
+    }
+
+    const claimedCurrentUser = await tx.user.updateMany({
+      where: {
+        id: userId,
+        status: "GETTING_BORED",
+      },
+      data: {
+        status: "IN_CHAT",
+        lastActiveAt: new Date(),
+      },
+    });
+
+    if (claimedCurrentUser.count !== 1) {
+      // The current user was matched by a concurrent request. Put the
+      // candidate back into the queue and let that chat win.
+      await tx.user.updateMany({
+        where: {
+          id: otherUser.id,
+          status: "IN_CHAT",
+        },
+        data: {
+          status: "GETTING_BORED",
+          lastActiveAt: new Date(),
+        },
+      });
+
+      return {
+        status: "WAITING" as const,
+        matched: false,
+      };
+    }
+
+    const chat = await tx.chat.create({
+      data: {
+        user1Id: userId,
+        user2Id: otherUser.id,
       },
     });
 
