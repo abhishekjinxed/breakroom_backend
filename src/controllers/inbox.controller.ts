@@ -5,8 +5,43 @@ import { notifyChatLeft } from "../socket";
 
 const member = { id: true, anonymousUsername: true } as const;
 
+async function ensureAcceptedPlaneChats(userId: string) {
+  const acceptedPlanes = await prisma.paperPlaneInvite.findMany({
+    // Only reconcile recent accepts. Historical accepted planes may belong to
+    // conversations deliberately crushed or deleted by a participant.
+    where: { status: "ACCEPTED", respondedAt: { gte: new Date(Date.now() - 15 * 60 * 1000) }, OR: [{ senderId: userId }, { recipientId: userId }] },
+    select: { senderId: true, recipientId: true },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const plane of acceptedPlanes) {
+      let connection = await tx.workCircleConnection.findFirst({ where: { OR: [{ requesterId: plane.senderId, recipientId: plane.recipientId }, { requesterId: plane.recipientId, recipientId: plane.senderId }] } });
+      // REMOVED means either participant intentionally ended this connection.
+      if (connection?.status === "REMOVED") continue;
+      if (!connection) {
+        connection = await tx.workCircleConnection.create({ data: { requesterId: plane.senderId, recipientId: plane.recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: new Date() } });
+      } else if (connection.status !== "ACCEPTED") {
+        connection = await tx.workCircleConnection.update({ where: { id: connection.id }, data: { requesterId: plane.senderId, recipientId: plane.recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: new Date() } });
+      }
+
+      const anyDirectChat = await tx.chat.findFirst({ where: { isDirect: true, OR: [{ user1Id: plane.senderId, user2Id: plane.recipientId }, { user1Id: plane.recipientId, user2Id: plane.senderId }] }, orderBy: { createdAt: "desc" } });
+      // Never recreate a direct chat that has been explicitly ended.
+      if (anyDirectChat?.endedAt) continue;
+      const existingChat = anyDirectChat;
+      if (!existingChat) {
+        await tx.chat.create({ data: { user1Id: plane.senderId, user2Id: plane.recipientId, isDirect: true, connectionId: connection.id, lastMessageAt: new Date() } });
+      } else if (existingChat.connectionId !== connection.id) {
+        await tx.chat.update({ where: { id: existingChat.id }, data: { connectionId: connection.id, lastMessageAt: existingChat.lastMessageAt ?? new Date() } });
+      }
+    }
+  });
+}
+
 export async function listInbox(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!;
+  // Reconcile only a fresh acceptance that was interrupted between its Plane
+  // response and direct-chat creation.
+  await ensureAcceptedPlaneChats(userId);
   const chats = await prisma.chat.findMany({
     where: { isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] },
     orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
