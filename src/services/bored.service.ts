@@ -375,16 +375,19 @@ export async function sendPaperPlane(senderId: string, message: string) {
   });
 }
 
-export async function getPendingPaperPlane(recipientId: string) {
+export async function getPendingPaperPlanes(recipientId: string) {
   const now = new Date();
   await prisma.paperPlaneInvite.updateMany({
     where: { recipientId, status: "PENDING", expiresAt: { lte: now } },
     data: { status: "EXPIRED", respondedAt: now },
   });
 
-  return prisma.paperPlaneInvite.findFirst({
+  // A desk can hold several unopened planes. Keep them all available until
+  // their five-minute expiry rather than only returning the latest arrival.
+  return prisma.paperPlaneInvite.findMany({
     where: { recipientId, status: "PENDING", expiresAt: { gt: now } },
     orderBy: { createdAt: "desc" },
+    take: 12,
     include: {
       sender: { select: { id: true, anonymousUsername: true } },
     },

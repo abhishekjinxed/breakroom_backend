@@ -7,7 +7,7 @@ const member = { id: true, anonymousUsername: true } as const;
 export async function listInbox(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!;
   const chats = await prisma.chat.findMany({
-    where: { isDirect: true, endedAt: null, connection: { status: "ACCEPTED" }, OR: [{ user1Id: userId }, { user2Id: userId }] },
+    where: { isDirect: true, endedAt: null, connection: { status: "ACCEPTED" }, OR: [{ user1Id: userId }, { user2Id: userId }], AND: [{ user1: { blocksCreated: { none: { blockedId: userId } }, blocksReceived: { none: { blockerId: userId } } } }, { user2: { blocksCreated: { none: { blockedId: userId } }, blocksReceived: { none: { blockerId: userId } } } }] },
     orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
     include: { user1: { select: member }, user2: { select: member }, messages: { orderBy: { createdAt: "desc" }, take: 1 }, _count: { select: { messages: { where: { senderId: { not: userId }, readAt: null } } } } },
   });

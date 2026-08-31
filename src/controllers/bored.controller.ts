@@ -1,7 +1,7 @@
 import { Response } from "express";
 import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { getPendingPaperPlane, joinBoredQueue , leaveChat, respondToPaperPlane, sendPaperPlane } from "../services/bored.service";
+import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendPaperPlane } from "../services/bored.service";
 import { notifyChatLeft, notifyMatch, notifyPaperPlane } from "../socket";
 import {
   stopLooking,
@@ -167,8 +167,8 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
 
 export async function getPendingPaperPlaneController(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  const invite = await getPendingPaperPlane(req.userId);
-  return res.json({ success: true, invite });
+  const invites = await getPendingPaperPlanes(req.userId);
+  return res.json({ success: true, invites });
 }
 
 export async function respondToPaperPlaneController(req: AuthenticatedRequest, res: Response) {

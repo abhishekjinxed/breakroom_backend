@@ -27,8 +27,18 @@ export async function reportContent(req: AuthenticatedRequest, res: Response) {
 
 export async function blockUser(req: AuthenticatedRequest, res: Response) {
   if (!req.userId || typeof req.params.userId !== "string") return res.status(400).json({ success: false, message: "Invalid user." });
-  if (req.userId === req.params.userId) return res.status(400).json({ success: false, message: "You cannot block yourself." });
-  await prisma.userBlock.upsert({ where: { blockerId_blockedId: { blockerId: req.userId, blockedId: req.params.userId } }, create: { blockerId: req.userId, blockedId: req.params.userId }, update: {} });
+  const blockedId = req.params.userId;
+  if (req.userId === blockedId) return res.status(400).json({ success: false, message: "You cannot block yourself." });
+  await prisma.$transaction(async (tx) => {
+    await tx.userBlock.upsert({ where: { blockerId_blockedId: { blockerId: req.userId!, blockedId } }, create: { blockerId: req.userId!, blockedId }, update: {} });
+    // Blocking is immediate: remove any direct connection so neither person
+    // can continue sending messages through an already-open conversation.
+    const chats = await tx.chat.findMany({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: req.userId!, user2Id: blockedId }, { user1Id: blockedId, user2Id: req.userId! }] }, select: { id: true, connectionId: true } });
+    if (chats.length) {
+      await tx.chat.updateMany({ where: { id: { in: chats.map((chat) => chat.id) } }, data: { endedAt: new Date(), connectionId: null } });
+      await tx.workCircleConnection.updateMany({ where: { id: { in: chats.map((chat) => chat.connectionId).filter((id): id is string => !!id) }, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: new Date() } });
+    }
+  });
   return res.json({ success: true });
 }
 
