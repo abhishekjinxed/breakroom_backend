@@ -8,17 +8,26 @@ const member = { id: true, anonymousUsername: true } as const;
 export async function listInbox(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!;
   const chats = await prisma.chat.findMany({
-    where: { isDirect: true, endedAt: null, connection: { status: "ACCEPTED" }, OR: [{ user1Id: userId }, { user2Id: userId }], AND: [{ user1: { blocksCreated: { none: { blockedId: userId } }, blocksReceived: { none: { blockerId: userId } } } }, { user2: { blocksCreated: { none: { blockedId: userId } }, blocksReceived: { none: { blockerId: userId } } } }] },
+    where: { isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] },
     orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
     include: { user1: { select: member }, user2: { select: member }, messages: { orderBy: { createdAt: "desc" }, take: 1 }, _count: { select: { messages: { where: { senderId: { not: userId }, readAt: null } } } } },
   });
-  return res.json({ success: true, conversations: chats.map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt })) });
+  // A chat can retain an old connectionId after a user reconnects through a
+  // new Plane. Resolve eligibility from the active user pair, rather than
+  // only from the chat's stored relation.
+  const activeConnections = await prisma.workCircleConnection.findMany({ where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { recipientId: userId }] }, select: { requesterId: true, recipientId: true } });
+  const connectedIds = new Set(activeConnections.map((connection) => connection.requesterId === userId ? connection.recipientId : connection.requesterId));
+  const visibleChats = chats.filter((chat) => connectedIds.has(chat.user1Id === userId ? chat.user2Id : chat.user1Id));
+  return res.json({ success: true, conversations: visibleChats.map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt })) });
 }
 
 export async function readConversation(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!; const chatId = typeof req.params.id === "string" ? req.params.id : "";
-  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, connection: { status: "ACCEPTED" }, OR: [{ user1Id: userId }, { user2Id: userId }] } });
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] } });
   if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
+  const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
+  const activeConnection = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ requesterId: userId, recipientId: otherUserId }, { requesterId: otherUserId, recipientId: userId }] } });
+  if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
   const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
   return res.json({ success: true, messages });

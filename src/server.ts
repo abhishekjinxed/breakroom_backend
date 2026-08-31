@@ -192,6 +192,7 @@ io.on("connection", (socket) => {
           if (!friendship) { socket.emit("chat:error", { message: "This connection is no longer active." }); return; }
         }
 
+
         const message = await prisma.message.create({
           data: {
             chatId,
