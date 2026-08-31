@@ -53,6 +53,11 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum ProfilePhotoVisibility {
+  PRIVATE
+  PUBLIC
+}
+
 model User {
   id                String     @id @default(cuid())
   anonymousUsername String     @unique
@@ -90,6 +95,8 @@ model User {
   deskStickyNotes DeskStickyNote[]
   stickyApplauds StickyNoteApplaud[]
   stickyComments StickyNoteComment[]
+  profilePhotos ProfilePhoto[] @relation("ProfilePhotoOwner")
+  receivedProfilePhotoShares ProfilePhotoShare[] @relation("ProfilePhotoRecipient")
 }
 
 model CoffeeQueue {
@@ -315,4 +322,30 @@ model StickyNoteComment {
   author       User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([stickyNoteId, createdAt])
+}
+
+model ProfilePhoto {
+  id         String                 @id @default(cuid())
+  ownerId    String
+  url        String                 @db.VarChar(1000)
+  visibility ProfilePhotoVisibility @default(PRIVATE)
+  createdAt  DateTime               @default(now())
+
+  owner      User                @relation("ProfilePhotoOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  shares     ProfilePhotoShare[]
+
+  @@index([ownerId, createdAt])
+  @@index([ownerId, visibility])
+}
+
+model ProfilePhotoShare {
+  photoId     String
+  recipientId String
+  createdAt   DateTime @default(now())
+
+  photo       ProfilePhoto @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  recipient   User         @relation("ProfilePhotoRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@id([photoId, recipientId])
+  @@index([recipientId])
 }

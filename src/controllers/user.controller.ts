@@ -9,6 +9,8 @@ const profileSchema = z.object({
   gender: z.enum(["Woman", "Man", "Non-binary", "Prefer not to say", "Self-describe"]).nullable().optional(),
   socialLink: z.string().trim().url().max(500).nullable().optional(),
 });
+const photoCreateSchema = z.object({ url: z.string().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image."), visibility: z.enum(["PRIVATE", "PUBLIC"]).default("PRIVATE") });
+const photoUpdateSchema = z.object({ visibility: z.enum(["PRIVATE", "PUBLIC"]) });
 
 const userSelect = {
   id: true,
@@ -41,6 +43,40 @@ function ageFromDateOfBirth(dateOfBirth: Date | null) {
   let age = today.getUTCFullYear() - dateOfBirth.getUTCFullYear();
   const beforeBirthday = today.getUTCMonth() < dateOfBirth.getUTCMonth() || (today.getUTCMonth() === dateOfBirth.getUTCMonth() && today.getUTCDate() < dateOfBirth.getUTCDate());
   return beforeBirthday ? age - 1 : age;
+}
+
+const profilePhotoSelect = { id: true, url: true, visibility: true, createdAt: true } as const;
+
+export async function listMyProfilePhotos(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  const photos = await prisma.profilePhoto.findMany({ where: { ownerId: req.userId }, select: profilePhotoSelect, orderBy: { createdAt: "asc" } });
+  return res.json({ success: true, photos });
+}
+
+export async function addMyProfilePhoto(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  const parsed = photoCreateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Upload a valid Cloudinary image." });
+  const existing = await prisma.profilePhoto.count({ where: { ownerId: req.userId } });
+  if (existing >= 2) return res.status(400).json({ success: false, message: "You can keep up to two profile photos." });
+  const photo = await prisma.profilePhoto.create({ data: { ownerId: req.userId, ...parsed.data }, select: profilePhotoSelect });
+  return res.status(201).json({ success: true, photo });
+}
+
+export async function updateMyProfilePhoto(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.photoId !== "string") return res.status(400).json({ success: false, message: "Invalid profile photo." });
+  const parsed = photoUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Choose a valid photo visibility." });
+  const photo = await prisma.profilePhoto.updateMany({ where: { id: req.params.photoId, ownerId: req.userId }, data: parsed.data });
+  if (!photo.count) return res.status(404).json({ success: false, message: "Profile photo not found." });
+  return res.json({ success: true });
+}
+
+export async function deleteMyProfilePhoto(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.photoId !== "string") return res.status(400).json({ success: false, message: "Invalid profile photo." });
+  const photo = await prisma.profilePhoto.deleteMany({ where: { id: req.params.photoId, ownerId: req.userId } });
+  if (!photo.count) return res.status(404).json({ success: false, message: "Profile photo not found." });
+  return res.json({ success: true });
 }
 
 export async function getMe(
@@ -124,12 +160,13 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   }
 
   const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
-  if (!hasFullProfileAccess && deskNotes.length === 0) return res.status(404).json({ success: false, message: "Member not found." });
+  const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+  if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0) return res.status(404).json({ success: false, message: "Member not found." });
 
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;
-  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, limitedProfile: !hasFullProfileAccess } });
+  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, limitedProfile: !hasFullProfileAccess } });
 }
 
 export async function listMembers(req: AuthenticatedRequest, res: Response) {

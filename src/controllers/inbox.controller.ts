@@ -78,11 +78,15 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
   const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
   const isSharingMyProfile = chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2;
-  const canViewMemberProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
-  return res.json({ success: true, messages, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null } });
+  const memberSharedAProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
+  const hasSharedMemberPhoto = await prisma.profilePhotoShare.findFirst({ where: { recipientId: userId, photo: { ownerId: otherUserId } }, select: { photoId: true } });
+  const canViewMemberProfile = memberSharedAProfile || !!hasSharedMemberPhoto;
+  const myPhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, visibility: true, createdAt: true, shares: { where: { recipientId: otherUserId }, select: { recipientId: true } } } });
+  return res.json({ success: true, messages, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null, photos: myPhotos.map(({ shares, ...photo }) => ({ ...photo, sharedWithMember: shares.length > 0 })) } });
 }
 
 const profileSharingSchema = z.object({ share: z.boolean() });
+const chatPhotoSharingSchema = z.object({ share: z.boolean() });
 
 export async function updateProfileSharing(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!;
@@ -99,6 +103,25 @@ export async function updateProfileSharing(req: AuthenticatedRequest, res: Respo
   const updated = await prisma.chat.update({ where: { id: chat.id }, data: chat.user1Id === userId ? { profileSharedByUser1: parsed.data.share } : { profileSharedByUser2: parsed.data.share } });
   notifyInboxUpdated(otherUserId, { chatId: chat.id });
   return res.json({ success: true, isSharingMyProfile: chat.user1Id === userId ? updated.profileSharedByUser1 : updated.profileSharedByUser2 });
+}
+
+export async function updateChatPhotoSharing(req: AuthenticatedRequest, res: Response) {
+  const userId = req.userId!;
+  const chatId = typeof req.params.id === "string" ? req.params.id : "";
+  const photoId = typeof req.params.photoId === "string" ? req.params.photoId : "";
+  const parsed = chatPhotoSharingSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Choose whether to share this photo." });
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] } });
+  if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
+  const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
+  const activeConnection = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ requesterId: userId, recipientId: otherUserId }, { requesterId: otherUserId, recipientId: userId }] } });
+  if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
+  const photo = await prisma.profilePhoto.findFirst({ where: { id: photoId, ownerId: userId }, select: { id: true } });
+  if (!photo) return res.status(404).json({ success: false, message: "Profile photo not found." });
+  if (parsed.data.share) await prisma.profilePhotoShare.upsert({ where: { photoId_recipientId: { photoId: photo.id, recipientId: otherUserId } }, create: { photoId: photo.id, recipientId: otherUserId }, update: {} });
+  else await prisma.profilePhotoShare.deleteMany({ where: { photoId: photo.id, recipientId: otherUserId } });
+  notifyInboxUpdated(otherUserId, { chatId: chat.id });
+  return res.json({ success: true, shared: parsed.data.share });
 }
 
 export async function deleteConversation(req: AuthenticatedRequest, res: Response) {
