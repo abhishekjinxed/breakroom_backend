@@ -113,6 +113,15 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   });
   if (blocked) return res.status(404).json({ success: false, message: "Member not found." });
 
+  if (userId !== req.userId) {
+    const chat = await prisma.chat.findFirst({
+      where: { isDirect: true, endedAt: null, OR: [{ user1Id: req.userId, user2Id: userId }, { user1Id: userId, user2Id: req.userId }] },
+      select: { user1Id: true, user2Id: true, profileSharedByUser1: true, profileSharedByUser2: true },
+    });
+    const profileIsShared = chat && (chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2);
+    if (!profileIsShared) return res.status(404).json({ success: false, message: "Member not found." });
+  }
+
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;

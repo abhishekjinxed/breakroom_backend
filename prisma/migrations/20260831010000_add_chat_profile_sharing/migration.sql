@@ -1,0 +1,3 @@
+ALTER TABLE "Chat"
+  ADD COLUMN "profileSharedByUser1" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN "profileSharedByUser2" BOOLEAN NOT NULL DEFAULT false;

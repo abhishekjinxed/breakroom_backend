@@ -1,7 +1,8 @@
 import { Response } from "express";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { notifyChatLeft } from "../socket";
+import { notifyChatLeft, notifyInboxUpdated } from "../socket";
+import { z } from "zod";
 
 const member = { id: true, anonymousUsername: true } as const;
 
@@ -76,7 +77,28 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
   const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
-  return res.json({ success: true, messages });
+  const isSharingMyProfile = chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2;
+  const canViewMemberProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
+  return res.json({ success: true, messages, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null } });
+}
+
+const profileSharingSchema = z.object({ share: z.boolean() });
+
+export async function updateProfileSharing(req: AuthenticatedRequest, res: Response) {
+  const userId = req.userId!;
+  const chatId = typeof req.params.id === "string" ? req.params.id : "";
+  const parsed = profileSharingSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Choose whether to share your profile." });
+
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] } });
+  if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
+  const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
+  const activeConnection = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ requesterId: userId, recipientId: otherUserId }, { requesterId: otherUserId, recipientId: userId }] } });
+  if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
+
+  const updated = await prisma.chat.update({ where: { id: chat.id }, data: chat.user1Id === userId ? { profileSharedByUser1: parsed.data.share } : { profileSharedByUser2: parsed.data.share } });
+  notifyInboxUpdated(otherUserId, { chatId: chat.id });
+  return res.json({ success: true, isSharingMyProfile: chat.user1Id === userId ? updated.profileSharedByUser1 : updated.profileSharedByUser2 });
 }
 
 export async function deleteConversation(req: AuthenticatedRequest, res: Response) {

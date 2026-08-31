@@ -251,6 +251,8 @@ model Chat {
   isDirect  Boolean  @default(false)
   connectionId String? @unique
   lastMessageAt DateTime?
+  profileSharedByUser1 Boolean @default(false)
+  profileSharedByUser2 Boolean @default(false)
 
   user1 User @relation("ChatUser1", fields: [user1Id], references: [id])
   user2 User @relation("ChatUser2", fields: [user2Id], references: [id])
