@@ -87,3 +87,9 @@ export function notifyPaperPlane(
     io.to(socketId).emit("paper_plane:received", data);
   }
 }
+
+export function notifyInboxUpdated(userId: string, data: { chatId: string }) {
+  if (!io) return;
+  const socketId = userSockets.get(userId);
+  if (socketId) io.to(socketId).emit("inbox:updated", data);
+}

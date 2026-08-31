@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendPaperPlane } from "../services/bored.service";
-import { notifyChatLeft, notifyMatch, notifyPaperPlane } from "../socket";
+import { notifyChatLeft, notifyInboxUpdated, notifyMatch, notifyPaperPlane } from "../socket";
 import {
   stopLooking,
 } from "../services/bored.service";
@@ -179,8 +179,10 @@ export async function respondToPaperPlaneController(req: AuthenticatedRequest, r
   try {
     const result = await respondToPaperPlane(req.userId, req.params.inviteId, parsed.data.accept);
     if (result.accepted && result.chatId) {
-      notifyMatch(req.userId, { chatId: result.chatId });
-      notifyMatch(result.senderId, { chatId: result.chatId });
+      // A Paper Plane becomes a persistent Inbox conversation. It must not
+      // use match_found, which is reserved for the temporary quick-match UI.
+      notifyInboxUpdated(req.userId, { chatId: result.chatId });
+      notifyInboxUpdated(result.senderId, { chatId: result.chatId });
     }
     return res.json({ success: true, ...result });
   } catch (error) {
