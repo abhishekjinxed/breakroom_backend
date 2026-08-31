@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
+import { notifyChatLeft } from "../socket";
 
 const member = { id: true, anonymousUsername: true } as const;
 
@@ -25,12 +26,18 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
 
 export async function deleteConversation(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!; const chatId = typeof req.params.id === "string" ? req.params.id : "";
-  const removed = await prisma.$transaction(async (tx) => {
-    const chat = await tx.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, connection: { status: "ACCEPTED" }, OR: [{ user1Id: userId }, { user2Id: userId }] } });
-    if (!chat) return false;
-    await tx.chat.update({ where: { id: chat.id }, data: { endedAt: new Date(), connectionId: null } });
-    if (chat.connectionId) await tx.workCircleConnection.updateMany({ where: { id: chat.connectionId, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: new Date() } });
-    return true;
+  const result = await prisma.$transaction(async (tx) => {
+    // Do not require a live relation here. A previous partial deletion or an
+    // older chat can legitimately have no connectionId, but its owner must
+    // still be able to remove it from their Inbox.
+    const chat = await tx.chat.findFirst({ where: { id: chatId, isDirect: true, OR: [{ user1Id: userId }, { user2Id: userId }] } });
+    if (!chat) return { removed: false, otherUserId: null };
+    if (chat.endedAt) return { removed: true, otherUserId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
+    const now = new Date();
+    if (chat.connectionId) await tx.workCircleConnection.updateMany({ where: { id: chat.connectionId, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: now } });
+    await tx.chat.update({ where: { id: chat.id }, data: { endedAt: now } });
+    return { removed: true, otherUserId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
   });
-  return res.json({ success: true, removed });
+  if (result.removed && result.otherUserId) notifyChatLeft(result.otherUserId, { chatId });
+  return res.json({ success: true, removed: result.removed });
 }
