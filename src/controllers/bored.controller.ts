@@ -153,12 +153,15 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a message up to 160 characters." });
 
   try {
-    const { invite, recipient } = await sendPaperPlane(req.userId, parsed.data.message);
+    const { invite, recipient, balance } = await sendPaperPlane(req.userId, parsed.data.message);
     notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, sender: invite.sender, expiresAt: invite.expiresAt });
-    return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt } });
+    return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 10 } });
   } catch (error) {
     if (error instanceof Error && error.message === "NO_AVAILABLE_RECIPIENT") {
       return res.status(409).json({ success: false, message: "No one is available for a break right now. Try again shortly." });
+    }
+    if (error instanceof Error && error.message === "INSUFFICIENT_PAISA") {
+      return res.status(402).json({ success: false, message: "You need 10 Paisa to send a Paper Plane." });
     }
     console.error("PAPER PLANE ERROR:", error);
     return res.status(500).json({ success: false, message: "Unable to send your paper plane." });

@@ -97,6 +97,7 @@ model User {
   stickyComments StickyNoteComment[]
   profilePhotos ProfilePhoto[] @relation("ProfilePhotoOwner")
   receivedProfilePhotoShares ProfilePhotoShare[] @relation("ProfilePhotoRecipient")
+  paisaWallet PaisaWallet?
 }
 
 model CoffeeQueue {
@@ -348,4 +349,14 @@ model ProfilePhotoShare {
 
   @@id([photoId, recipientId])
   @@index([recipientId])
+}
+
+// Paisa is a virtual Breakroom balance. It has no cash value and cannot be
+// withdrawn or transferred outside the app.
+model PaisaWallet {
+  userId    String   @id
+  balance   Int      @default(50000)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

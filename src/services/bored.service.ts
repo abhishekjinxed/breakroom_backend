@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { notifyMatch } from "../socket";
+import { PAPER_PLANE_COST, STARTING_PAISA } from "../lib/paisa";
 
 const PAPER_PLANE_TTL_MS = 5 * 60 * 1000;
 
@@ -359,6 +360,13 @@ export async function sendPaperPlane(senderId: string, message: string) {
       throw new Error("NO_AVAILABLE_RECIPIENT");
     }
 
+    // Create a starter wallet lazily for existing users, then perform an
+    // atomic conditional debit. This prevents parallel requests from sending
+    // more planes than the virtual balance can cover.
+    await tx.paisaWallet.upsert({ where: { userId: senderId }, create: { userId: senderId, balance: STARTING_PAISA }, update: {} });
+    const debit = await tx.paisaWallet.updateMany({ where: { userId: senderId, balance: { gte: PAPER_PLANE_COST } }, data: { balance: { decrement: PAPER_PLANE_COST } } });
+    if (!debit.count) throw new Error("INSUFFICIENT_PAISA");
+
     const invite = await tx.paperPlaneInvite.create({
       data: {
         senderId,
@@ -371,7 +379,8 @@ export async function sendPaperPlane(senderId: string, message: string) {
       },
     });
 
-    return { invite, recipient };
+    const wallet = await tx.paisaWallet.findUniqueOrThrow({ where: { userId: senderId }, select: { balance: true } });
+    return { invite, recipient, balance: wallet.balance };
   });
 }
 

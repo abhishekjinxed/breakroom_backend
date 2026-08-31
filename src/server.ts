@@ -16,6 +16,7 @@ import cultureRoutes from "./routes/culture.routes";
 import inboxRoutes from "./routes/inbox.routes";
 import stickyNoteRoutes from "./routes/sticky-note.routes";
 import deskRoutes from "./routes/desk.routes";
+import walletRoutes from "./routes/wallet.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -48,6 +49,7 @@ app.use("/api/culture", cultureRoutes);
 app.use("/api/conversations", inboxRoutes);
 app.use("/api/stickies", stickyNoteRoutes);
 app.use("/api/desk", deskRoutes);
+app.use("/api/wallet", walletRoutes);
 
 const httpServer = http.createServer(app);
 
