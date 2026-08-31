@@ -190,6 +190,7 @@ export async function respondToPaperPlaneController(req: AuthenticatedRequest, r
       return res.status(409).json({ success: false, message: "This paper plane is no longer available." });
     }
     console.error("PAPER PLANE RESPONSE ERROR:", error);
-    return res.status(500).json({ success: false, message: "Unable to respond to this paper plane." });
+    const errorCode = error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : undefined;
+    return res.status(500).json({ success: false, message: "Unable to respond to this paper plane.", errorCode });
   }
 }
