@@ -419,18 +419,19 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
 
     if (!accept) return { accepted: false, senderId: invite.senderId };
 
-    if (invite.sender.status === "IN_CHAT" || invite.recipient.status === "IN_CHAT") {
-      await tx.paperPlaneInvite.update({ where: { id: invite.id }, data: { status: "CANCELLED", respondedAt: now } });
-      throw new Error("PAPER_PLANE_UNAVAILABLE");
+    // Accepting a Plane is the mutual-connection action.  It creates (or
+    // reactivates) exactly one private Inbox conversation instead of a
+    // temporary stranger chat.
+    let connection = await tx.workCircleConnection.findFirst({ where: { OR: [{ requesterId: invite.senderId, recipientId }, { requesterId: recipientId, recipientId: invite.senderId }] } });
+    if (!connection) {
+      connection = await tx.workCircleConnection.create({ data: { requesterId: invite.senderId, recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: now } });
+    } else if (connection.status !== "ACCEPTED") {
+      connection = await tx.workCircleConnection.update({ where: { id: connection.id }, data: { requesterId: invite.senderId, recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: now } });
     }
 
-    const chat = await tx.chat.create({
-      data: { user1Id: invite.senderId, user2Id: invite.recipientId },
-    });
-    await tx.user.updateMany({
-      where: { id: { in: [invite.senderId, invite.recipientId] } },
-      data: { status: "IN_CHAT", lastActiveAt: now },
-    });
+    let chat = await tx.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId: connection.id }, { user1Id: invite.senderId, user2Id: recipientId }, { user1Id: recipientId, user2Id: invite.senderId }] } });
+    if (chat && !chat.connectionId) chat = await tx.chat.update({ where: { id: chat.id }, data: { connectionId: connection.id } });
+    if (!chat) chat = await tx.chat.create({ data: { user1Id: invite.senderId, user2Id: recipientId, isDirect: true, connectionId: connection.id, lastMessageAt: now } });
 
     return { accepted: true, chatId: chat.id, senderId: invite.senderId };
   });
