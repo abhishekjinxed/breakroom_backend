@@ -53,7 +53,18 @@ export async function listInbox(req: AuthenticatedRequest, res: Response) {
   const activeConnections = await prisma.workCircleConnection.findMany({ where: { status: "ACCEPTED", OR: [{ requesterId: userId }, { recipientId: userId }] }, select: { requesterId: true, recipientId: true } });
   const connectedIds = new Set(activeConnections.map((connection) => connection.requesterId === userId ? connection.recipientId : connection.requesterId));
   const visibleChats = chats.filter((chat) => connectedIds.has(chat.user1Id === userId ? chat.user2Id : chat.user1Id));
-  return res.json({ success: true, conversations: visibleChats.map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt })) });
+  // One person, one active Inbox thread. Older duplicates can exist from
+  // earlier app versions; show only the most recently active one.
+  const newestByMember = new Map<string, typeof visibleChats[number]>();
+  for (const chat of visibleChats) {
+    const memberId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
+    const current = newestByMember.get(memberId);
+    const chatTime = (chat.lastMessageAt ?? chat.createdAt).getTime();
+    const currentTime = current ? (current.lastMessageAt ?? current.createdAt).getTime() : -1;
+    if (!current || chatTime > currentTime) newestByMember.set(memberId, chat);
+  }
+  const conversations = Array.from(newestByMember.values()).sort((a, b) => (b.lastMessageAt ?? b.createdAt).getTime() - (a.lastMessageAt ?? a.createdAt).getTime()).map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt }));
+  return res.json({ success: true, conversations });
 }
 
 export async function readConversation(req: AuthenticatedRequest, res: Response) {

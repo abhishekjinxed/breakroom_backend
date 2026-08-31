@@ -436,7 +436,7 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
       connection = await tx.workCircleConnection.update({ where: { id: connection.id }, data: { requesterId: invite.senderId, recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: now } });
     }
 
-    let chat = await tx.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId: connection.id }, { user1Id: invite.senderId, user2Id: recipientId }, { user1Id: recipientId, user2Id: invite.senderId }] } });
+    let chat = await tx.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId: connection.id }, { user1Id: invite.senderId, user2Id: recipientId }, { user1Id: recipientId, user2Id: invite.senderId }] }, orderBy: { lastMessageAt: "desc" } });
     // A previous Work Circle/chat can have an older connectionId. Always
     // attach the active accepted Plane connection so the chat is visible in
     // Inbox and Socket.IO permits both users to message each other.
