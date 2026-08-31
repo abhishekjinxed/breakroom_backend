@@ -429,6 +429,10 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
     if (!connection) {
       connection = await tx.workCircleConnection.create({ data: { requesterId: invite.senderId, recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: now } });
     } else if (connection.status !== "ACCEPTED") {
+      // A crushed/deleted direct chat can still hold this nullable-but-unique
+      // connectionId. Release that historical reference before reactivating
+      // the connection for a newly accepted Paper Plane.
+      await tx.chat.updateMany({ where: { connectionId: connection.id, endedAt: { not: null } }, data: { connectionId: null } });
       connection = await tx.workCircleConnection.update({ where: { id: connection.id }, data: { requesterId: invite.senderId, recipientId, requestType: "PLANE", status: "ACCEPTED", respondedAt: now } });
     }
 

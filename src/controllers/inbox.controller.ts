@@ -78,8 +78,11 @@ export async function deleteConversation(req: AuthenticatedRequest, res: Respons
     if (!chat) return { removed: false, otherUserId: null };
     if (chat.endedAt) return { removed: true, otherUserId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
     const now = new Date();
-    if (chat.connectionId) await tx.workCircleConnection.updateMany({ where: { id: chat.connectionId, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: now } });
-    await tx.chat.update({ where: { id: chat.id }, data: { endedAt: now } });
+    const connectionId = chat.connectionId;
+    if (connectionId) await tx.workCircleConnection.updateMany({ where: { id: connectionId, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: now } });
+    // Keep the historical chat ended, but free its unique connectionId so a
+    // future mutually accepted Paper Plane can create a fresh conversation.
+    await tx.chat.update({ where: { id: chat.id }, data: { endedAt: now, connectionId: null } });
     return { removed: true, otherUserId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
   });
   if (result.removed && result.otherUserId) notifyChatLeft(result.otherUserId, { chatId });
