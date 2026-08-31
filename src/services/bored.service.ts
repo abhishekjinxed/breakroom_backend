@@ -433,7 +433,10 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
     }
 
     let chat = await tx.chat.findFirst({ where: { isDirect: true, endedAt: null, OR: [{ connectionId: connection.id }, { user1Id: invite.senderId, user2Id: recipientId }, { user1Id: recipientId, user2Id: invite.senderId }] } });
-    if (chat && !chat.connectionId) chat = await tx.chat.update({ where: { id: chat.id }, data: { connectionId: connection.id } });
+    // A previous Work Circle/chat can have an older connectionId. Always
+    // attach the active accepted Plane connection so the chat is visible in
+    // Inbox and Socket.IO permits both users to message each other.
+    if (chat && chat.connectionId !== connection.id) chat = await tx.chat.update({ where: { id: chat.id }, data: { connectionId: connection.id, lastMessageAt: chat.lastMessageAt ?? now } });
     if (!chat) chat = await tx.chat.create({ data: { user1Id: invite.senderId, user2Id: recipientId, isDirect: true, connectionId: connection.id, lastMessageAt: now } });
 
     return { accepted: true, chatId: chat.id, senderId: invite.senderId };
