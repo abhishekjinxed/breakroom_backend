@@ -43,6 +43,8 @@ enum ReportTargetType {
   NOTE
   MESSAGE
   USER
+  STICKY_NOTE
+  STICKY_COMMENT
 }
 
 enum ReportStatus {
@@ -85,6 +87,9 @@ model User {
   interests UserInterest[]
   kudosSent Kudos[] @relation("KudosSender")
   kudosReceived Kudos[] @relation("KudosRecipient")
+  deskStickyNotes DeskStickyNote[]
+  stickyApplauds StickyNoteApplaud[]
+  stickyComments StickyNoteComment[]
 }
 
 model CoffeeQueue {
@@ -271,4 +276,43 @@ model Message {
 
   chat   Chat @relation(fields: [chatId], references: [id])
   sender User @relation(fields: [senderId], references: [id])
+}
+
+model DeskStickyNote {
+  id        String   @id @default(cuid())
+  authorId  String
+  text      String   @db.VarChar(160)
+  createdAt DateTime @default(now())
+
+  author    User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  applauds  StickyNoteApplaud[]
+  comments  StickyNoteComment[]
+
+  @@index([createdAt])
+  @@index([authorId, createdAt])
+}
+
+model StickyNoteApplaud {
+  userId     String
+  stickyNoteId String
+  createdAt  DateTime @default(now())
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stickyNote DeskStickyNote  @relation(fields: [stickyNoteId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stickyNoteId])
+  @@index([stickyNoteId])
+}
+
+model StickyNoteComment {
+  id           String   @id @default(cuid())
+  stickyNoteId String
+  authorId     String
+  text         String   @db.VarChar(300)
+  createdAt    DateTime @default(now())
+
+  stickyNote   DeskStickyNote @relation(fields: [stickyNoteId], references: [id], onDelete: Cascade)
+  author       User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([stickyNoteId, createdAt])
 }

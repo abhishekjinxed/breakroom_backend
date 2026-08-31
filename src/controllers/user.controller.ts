@@ -113,19 +113,23 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   });
   if (blocked) return res.status(404).json({ success: false, message: "Member not found." });
 
+  let hasFullProfileAccess = userId === req.userId;
   if (userId !== req.userId) {
     const chat = await prisma.chat.findFirst({
       where: { isDirect: true, endedAt: null, OR: [{ user1Id: req.userId, user2Id: userId }, { user1Id: userId, user2Id: req.userId }] },
       select: { user1Id: true, user2Id: true, profileSharedByUser1: true, profileSharedByUser2: true },
     });
     const profileIsShared = chat && (chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2);
-    if (!profileIsShared) return res.status(404).json({ success: false, message: "Member not found." });
+    hasFullProfileAccess = !!profileIsShared;
   }
+
+  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  if (!hasFullProfileAccess && deskNotes.length === 0) return res.status(404).json({ success: false, message: "Member not found." });
 
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;
-  return res.json({ success: true, user: { ...publicUser, age: ageFromDateOfBirth(dateOfBirth) } });
+  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, limitedProfile: !hasFullProfileAccess } });
 }
 
 export async function listMembers(req: AuthenticatedRequest, res: Response) {

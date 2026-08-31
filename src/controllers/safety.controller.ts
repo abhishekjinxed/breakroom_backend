@@ -5,7 +5,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft } from "../socket";
 
 const reportSchema = z.object({
-  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER"]),
+  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT"]),
   targetId: z.string().min(1),
   reason: z.string().trim().min(3).max(500),
   details: z.string().trim().max(1000).optional(),
@@ -100,6 +100,14 @@ async function getTargetPreview(targetType: string, targetId: string) {
   if (targetType === "MESSAGE") {
     const target = await prisma.message.findUnique({ where: { id: targetId }, select: { text: true, sender: { select: { anonymousUsername: true } } } });
     return target ? { label: "Chat message", text: target.text, author: target.sender.anonymousUsername } : { label: "Chat message", text: "This content is no longer available." };
+  }
+  if (targetType === "STICKY_NOTE") {
+    const target = await prisma.deskStickyNote.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
+    return target ? { label: "Desk Note", text: target.text, author: target.author.anonymousUsername } : { label: "Desk Note", text: "This content is no longer available." };
+  }
+  if (targetType === "STICKY_COMMENT") {
+    const target = await prisma.stickyNoteComment.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
+    return target ? { label: "Desk Note comment", text: target.text, author: target.author.anonymousUsername } : { label: "Desk Note comment", text: "This content is no longer available." };
   }
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { anonymousUsername: true, bio: true, deletedAt: true } });
   return target

@@ -14,6 +14,7 @@ import safetyRoutes from "./routes/safety.routes";
 import workCircleRoutes from "./routes/work-circle.routes";
 import cultureRoutes from "./routes/culture.routes";
 import inboxRoutes from "./routes/inbox.routes";
+import stickyNoteRoutes from "./routes/sticky-note.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -44,6 +45,7 @@ app.use("/api/safety", safetyRoutes);
 app.use("/api/work-circle", workCircleRoutes);
 app.use("/api/culture", cultureRoutes);
 app.use("/api/conversations", inboxRoutes);
+app.use("/api/stickies", stickyNoteRoutes);
 
 const httpServer = http.createServer(app);
 
