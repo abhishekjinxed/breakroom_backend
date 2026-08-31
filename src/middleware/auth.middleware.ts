@@ -37,6 +37,10 @@ export async function authenticate(
       return res.status(401).json({ success: false, message: "Account is no longer active" });
     }
 
+    // Presence drives random Paper Plane delivery. Refresh it for every
+    // authenticated request so an open, signed-in desk is eligible.
+    await prisma.user.update({ where: { id: payload.userId }, data: { lastActiveAt: new Date() } });
+
     req.userId = payload.userId;
 
     next();

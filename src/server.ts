@@ -79,6 +79,7 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   const userId = socket.data.userId;
   registerUserSocket(userId, socket.id);
+  prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => undefined);
   console.log(`🔌 User connected: ${userId}`);
 
   socket.on("chat:join", async (chatId: string) => {
