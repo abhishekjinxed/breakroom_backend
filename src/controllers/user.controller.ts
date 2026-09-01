@@ -160,13 +160,14 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   }
 
   const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  const profilePhotoCount = await prisma.profilePhoto.count({ where: { ownerId: userId } });
   const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
   if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0) return res.status(404).json({ success: false, message: "Member not found." });
 
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;
-  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, limitedProfile: !hasFullProfileAccess } });
+  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, photoAvailability: { total: profilePhotoCount, visible: visiblePhotos.length }, limitedProfile: !hasFullProfileAccess } });
 }
 
 export async function listMembers(req: AuthenticatedRequest, res: Response) {
