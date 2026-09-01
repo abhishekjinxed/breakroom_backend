@@ -17,6 +17,7 @@ import inboxRoutes from "./routes/inbox.routes";
 import stickyNoteRoutes from "./routes/sticky-note.routes";
 import deskRoutes from "./routes/desk.routes";
 import walletRoutes from "./routes/wallet.routes";
+import notificationRoutes from "./routes/notification.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -50,6 +51,7 @@ app.use("/api/conversations", inboxRoutes);
 app.use("/api/stickies", stickyNoteRoutes);
 app.use("/api/desk", deskRoutes);
 app.use("/api/wallet", walletRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 const httpServer = http.createServer(app);
 

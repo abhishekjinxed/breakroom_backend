@@ -58,6 +58,11 @@ enum ProfilePhotoVisibility {
   PUBLIC
 }
 
+enum AppNotificationType {
+  STICKY_NOTE_COMMENT
+  STICKY_NOTE_REPLY
+}
+
 model User {
   id                String     @id @default(cuid())
   anonymousUsername String     @unique
@@ -98,6 +103,7 @@ model User {
   profilePhotos ProfilePhoto[] @relation("ProfilePhotoOwner")
   receivedProfilePhotoShares ProfilePhotoShare[] @relation("ProfilePhotoRecipient")
   paisaWallet PaisaWallet?
+  notifications AppNotification[]
 }
 
 model CoffeeQueue {
@@ -325,6 +331,21 @@ model StickyNoteComment {
   author       User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([stickyNoteId, createdAt])
+}
+
+model AppNotification {
+  id        String              @id @default(cuid())
+  userId    String
+  type      AppNotificationType
+  title     String              @db.VarChar(120)
+  detail    String              @db.VarChar(400)
+  link      String?             @db.VarChar(500)
+  readAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
 }
 
 model ProfilePhoto {

@@ -93,3 +93,12 @@ export function notifyInboxUpdated(userId: string, data: { chatId: string }) {
   const socketId = userSockets.get(userId);
   if (socketId) io.to(socketId).emit("inbox:updated", data);
 }
+
+export function notifyAppNotification(
+  userId: string,
+  data: { id: string; title: string; detail: string; link: string | null; createdAt: Date }
+) {
+  if (!io) return;
+  const socketId = userSockets.get(userId);
+  if (socketId) io.to(socketId).emit("notification:created", data);
+}
