@@ -2,7 +2,8 @@ import { prisma } from "../lib/prisma";
 import { notifyMatch } from "../socket";
 import { PAPER_PLANE_COST, STARTING_PAISA } from "../lib/paisa";
 
-const PAPER_PLANE_TTL_MS = 5 * 60 * 1000;
+const PAPER_PLANE_TTL_MS = 24 * 60 * 60 * 1000;
+const PAPER_PLANE_RECIPIENT_ACTIVITY_MS = 24 * 60 * 60 * 1000;
 
 export async function joinBoredQueue(userId: string) {
   const result = await prisma.$transaction(async (tx) => {
@@ -330,10 +331,7 @@ export async function sendPaperPlane(senderId: string, message: string) {
     await tx.paperPlaneInvite.updateMany({
       where: {
         status: "PENDING",
-        OR: [
-          { expiresAt: { lte: now } },
-          { senderId },
-        ],
+        expiresAt: { lte: now },
       },
       data: {
         status: "EXPIRED",
@@ -346,7 +344,7 @@ export async function sendPaperPlane(senderId: string, message: string) {
         id: { not: senderId },
         deletedAt: null,
         status: { in: ["ONLINE", "GETTING_BORED"] },
-        lastActiveAt: { gte: new Date(now.getTime() - 5 * 60 * 1000) },
+        lastActiveAt: { gte: new Date(now.getTime() - PAPER_PLANE_RECIPIENT_ACTIVITY_MS) },
         blocksCreated: { none: { blockedId: senderId } },
         blocksReceived: { none: { blockerId: senderId } },
       },
@@ -392,7 +390,7 @@ export async function getPendingPaperPlanes(recipientId: string) {
   });
 
   // A desk can hold several unopened planes. Keep them all available until
-  // their five-minute expiry rather than only returning the latest arrival.
+  // their 24-hour expiry rather than only returning the latest arrival.
   return prisma.paperPlaneInvite.findMany({
     where: { recipientId, status: "PENDING", expiresAt: { gt: now } },
     orderBy: { createdAt: "desc" },
