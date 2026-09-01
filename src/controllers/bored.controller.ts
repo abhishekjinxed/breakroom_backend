@@ -177,6 +177,7 @@ export async function sendCharterPaperPlaneController(req: AuthenticatedRequest,
     notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, isCharter: true, sender: invite.sender, expiresAt: invite.expiresAt });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, isCharter: true, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 100 } });
   } catch (error) {
+    if (error instanceof Error && error.message === "INVALID_CHARTER_RECIPIENT") return res.status(400).json({ success: false, message: "You cannot send a Charter Plane to your own desk." });
     if (error instanceof Error && error.message === "CHARTER_RECIPIENT_UNAVAILABLE") return res.status(404).json({ success: false, message: "This member is unavailable for a Charter Plane." });
     if (error instanceof Error && error.message === "CHARTER_ALREADY_SENT") return res.status(409).json({ success: false, message: "Your Charter Plane is already on this member’s desk for 24 hours." });
     if (error instanceof Error && error.message === "INSUFFICIENT_PAISA") return res.status(402).json({ success: false, message: "You need 100 Paisa to send a Charter Plane." });
