@@ -1,0 +1,1 @@
+ALTER TABLE "PaperPlaneInvite" ADD COLUMN "isCharter" BOOLEAN NOT NULL DEFAULT false;

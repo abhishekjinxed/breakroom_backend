@@ -1,2 +1,3 @@
 export const STARTING_PAISA = 50_000;
 export const PAPER_PLANE_COST = 10;
+export const CHARTER_PLANE_COST = PAPER_PLANE_COST * 10;

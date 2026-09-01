@@ -78,7 +78,7 @@ export function notifyChatLeft(
 
 export function notifyPaperPlane(
   userId: string,
-  data: { id: string; message: string; sender: { id: string; anonymousUsername: string }; expiresAt: Date }
+  data: { id: string; message: string; isCharter: boolean; sender: { id: string; anonymousUsername: string }; expiresAt: Date }
 ) {
   if (!io) return;
 

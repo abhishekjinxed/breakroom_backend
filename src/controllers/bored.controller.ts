@@ -1,7 +1,7 @@
 import { Response } from "express";
 import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendPaperPlane } from "../services/bored.service";
+import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendCharterPaperPlane, sendPaperPlane } from "../services/bored.service";
 import { notifyChatLeft, notifyInboxUpdated, notifyMatch, notifyPaperPlane } from "../socket";
 import {
   stopLooking,
@@ -154,7 +154,7 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
 
   try {
     const { invite, recipient, balance } = await sendPaperPlane(req.userId, parsed.data.message);
-    notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, sender: invite.sender, expiresAt: invite.expiresAt });
+    notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, isCharter: invite.isCharter, sender: invite.sender, expiresAt: invite.expiresAt });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 10 } });
   } catch (error) {
     if (error instanceof Error && error.message === "NO_AVAILABLE_RECIPIENT") {
@@ -165,6 +165,20 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
     }
     console.error("PAPER PLANE ERROR:", error);
     return res.status(500).json({ success: false, message: "Unable to send your paper plane." });
+  }
+}
+
+export async function sendCharterPaperPlaneController(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.recipientId !== "string") return res.status(400).json({ success: false, message: "Choose a member for the Charter Plane." });
+  try {
+    const { invite, recipient, balance } = await sendCharterPaperPlane(req.userId, req.params.recipientId);
+    notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, isCharter: true, sender: invite.sender, expiresAt: invite.expiresAt });
+    return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, isCharter: true, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 100 } });
+  } catch (error) {
+    if (error instanceof Error && error.message === "CHARTER_RECIPIENT_UNAVAILABLE") return res.status(404).json({ success: false, message: "This member is unavailable for a Charter Plane." });
+    if (error instanceof Error && error.message === "CHARTER_ALREADY_SENT") return res.status(409).json({ success: false, message: "Your Charter Plane is already on this member’s desk for 24 hours." });
+    if (error instanceof Error && error.message === "INSUFFICIENT_PAISA") return res.status(402).json({ success: false, message: "You need 100 Paisa to send a Charter Plane." });
+    return res.status(500).json({ success: false, message: "Unable to send the Charter Plane." });
   }
 }
 

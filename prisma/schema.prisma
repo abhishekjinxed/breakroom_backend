@@ -177,6 +177,7 @@ model PaperPlaneInvite {
   senderId    String
   recipientId String
   message     String           @db.VarChar(160)
+  isCharter   Boolean          @default(false)
   status      PaperPlaneStatus @default(PENDING)
   expiresAt   DateTime
   createdAt   DateTime         @default(now())

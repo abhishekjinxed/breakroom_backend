@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { notifyMatch } from "../socket";
-import { PAPER_PLANE_COST, STARTING_PAISA } from "../lib/paisa";
+import { CHARTER_PLANE_COST, PAPER_PLANE_COST, STARTING_PAISA } from "../lib/paisa";
 
 const PAPER_PLANE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAPER_PLANE_RECIPIENT_ACTIVITY_MS = 24 * 60 * 60 * 1000;
@@ -377,6 +377,53 @@ export async function sendPaperPlane(senderId: string, message: string) {
       },
     });
 
+    const wallet = await tx.paisaWallet.findUniqueOrThrow({ where: { userId: senderId }, select: { balance: true } });
+    return { invite, recipient, balance: wallet.balance };
+  });
+}
+
+export async function sendCharterPaperPlane(senderId: string, recipientId: string) {
+  if (senderId === recipientId) throw new Error("INVALID_CHARTER_RECIPIENT");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + PAPER_PLANE_TTL_MS);
+
+  return prisma.$transaction(async (tx) => {
+    await tx.paperPlaneInvite.updateMany({
+      where: { status: "PENDING", expiresAt: { lte: now } },
+      data: { status: "EXPIRED", respondedAt: now },
+    });
+
+    const recipient = await tx.user.findFirst({
+      where: {
+        id: recipientId,
+        deletedAt: null,
+        blocksCreated: { none: { blockedId: senderId } },
+        blocksReceived: { none: { blockerId: senderId } },
+      },
+      select: { id: true, anonymousUsername: true },
+    });
+    if (!recipient) throw new Error("CHARTER_RECIPIENT_UNAVAILABLE");
+
+    const existing = await tx.paperPlaneInvite.findFirst({
+      where: { senderId, recipientId, isCharter: true, status: "PENDING", expiresAt: { gt: now } },
+      select: { id: true },
+    });
+    if (existing) throw new Error("CHARTER_ALREADY_SENT");
+
+    await tx.paisaWallet.upsert({ where: { userId: senderId }, create: { userId: senderId, balance: STARTING_PAISA }, update: {} });
+    const debit = await tx.paisaWallet.updateMany({ where: { userId: senderId, balance: { gte: CHARTER_PLANE_COST } }, data: { balance: { decrement: CHARTER_PLANE_COST } } });
+    if (!debit.count) throw new Error("INSUFFICIENT_PAISA");
+
+    const invite = await tx.paperPlaneInvite.create({
+      data: {
+        senderId,
+        recipientId,
+        message: "A Charter Plane was sent directly to your desk.",
+        isCharter: true,
+        expiresAt,
+      },
+      include: { sender: { select: { id: true, anonymousUsername: true } } },
+    });
     const wallet = await tx.paisaWallet.findUniqueOrThrow({ where: { userId: senderId }, select: { balance: true } });
     return { invite, recipient, balance: wallet.balance };
   });
