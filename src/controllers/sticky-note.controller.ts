@@ -5,6 +5,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 
 const stickySchema = z.object({ text: z.string().trim().min(1).max(160) });
 const commentSchema = z.object({ text: z.string().trim().min(1).max(300) });
+const replySchema = z.object({ text: z.string().trim().min(1).max(240) });
 
 const stickyInclude = (userId: string) => ({
   author: { select: { id: true, anonymousUsername: true } },
@@ -56,4 +57,23 @@ export async function addStickyComment(req: AuthenticatedRequest, res: Response)
   if (!note) return res.status(404).json({ success: false, message: "Desk Note not found." });
   const comment = await prisma.stickyNoteComment.create({ data: { stickyNoteId: note.id, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true } } } });
   return res.status(201).json({ success: true, comment });
+}
+
+export async function replyToStickyComment(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.noteId !== "string" || typeof req.params.commentId !== "string") return res.status(400).json({ success: false, message: "Invalid Desk Note comment." });
+  const parsed = replySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, message: "Write a reply up to 240 characters." });
+  const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, authorId: req.userId }, select: { id: true } });
+  if (!note) return res.status(403).json({ success: false, message: "Only the Desk Note author can reply." });
+  const updated = await prisma.stickyNoteComment.updateMany({ where: { id: req.params.commentId, stickyNoteId: note.id, authorReply: null }, data: { authorReply: parsed.data.text, authorRepliedAt: new Date() } });
+  if (!updated.count) return res.status(409).json({ success: false, message: "This comment already has a reply or is unavailable." });
+  const comment = await prisma.stickyNoteComment.findUniqueOrThrow({ where: { id: req.params.commentId }, include: { author: { select: { id: true, anonymousUsername: true } } } });
+  return res.json({ success: true, comment });
+}
+
+export async function deleteStickyNote(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || typeof req.params.noteId !== "string") return res.status(400).json({ success: false, message: "Invalid Desk Note." });
+  const deleted = await prisma.deskStickyNote.deleteMany({ where: { id: req.params.noteId, authorId: req.userId } });
+  if (!deleted.count) return res.status(404).json({ success: false, message: "Desk Note not found or unavailable." });
+  return res.json({ success: true });
 }

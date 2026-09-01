@@ -22,6 +22,10 @@ export async function reportContent(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const parsed = reportSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Provide a report reason." });
+  if (parsed.data.targetType === "MESSAGE") {
+    const message = await prisma.message.findFirst({ where: { id: parsed.data.targetId, chat: { OR: [{ user1Id: req.userId }, { user2Id: req.userId }] } }, select: { id: true } });
+    if (!message) return res.status(404).json({ success: false, message: "That chat message is unavailable." });
+  }
   const report = await prisma.contentReport.create({ data: { reporterId: req.userId, ...parsed.data } });
   return res.status(201).json({ success: true, report });
 }

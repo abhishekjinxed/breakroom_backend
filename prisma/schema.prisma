@@ -317,6 +317,8 @@ model StickyNoteComment {
   stickyNoteId String
   authorId     String
   text         String   @db.VarChar(300)
+  authorReply  String?  @db.VarChar(240)
+  authorRepliedAt DateTime?
   createdAt    DateTime @default(now())
 
   stickyNote   DeskStickyNote @relation(fields: [stickyNoteId], references: [id], onDelete: Cascade)

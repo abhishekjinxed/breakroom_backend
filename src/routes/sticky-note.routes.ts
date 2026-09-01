@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addStickyComment, createStickyNote, listStickyNotes, toggleStickyApplaud } from "../controllers/sticky-note.controller";
+import { addStickyComment, createStickyNote, deleteStickyNote, listStickyNotes, replyToStickyComment, toggleStickyApplaud } from "../controllers/sticky-note.controller";
 import { authenticate } from "../middleware/auth.middleware";
 import { requireTermsAcceptance } from "../middleware/terms.middleware";
 
@@ -9,4 +9,6 @@ router.get("/", listStickyNotes);
 router.post("/", createStickyNote);
 router.post("/:noteId/applaud", toggleStickyApplaud);
 router.post("/:noteId/comments", addStickyComment);
+router.patch("/:noteId/comments/:commentId/reply", replyToStickyComment);
+router.delete("/:noteId", deleteStickyNote);
 export default router;
