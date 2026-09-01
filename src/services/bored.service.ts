@@ -382,7 +382,7 @@ export async function sendPaperPlane(senderId: string, message: string) {
   });
 }
 
-export async function sendCharterPaperPlane(senderId: string, recipientId: string) {
+export async function sendCharterPaperPlane(senderId: string, recipientId: string, message: string) {
   if (senderId === recipientId) throw new Error("INVALID_CHARTER_RECIPIENT");
   const now = new Date();
   const expiresAt = new Date(now.getTime() + PAPER_PLANE_TTL_MS);
@@ -418,7 +418,7 @@ export async function sendCharterPaperPlane(senderId: string, recipientId: strin
       data: {
         senderId,
         recipientId,
-        message: "A Charter Plane was sent directly to your desk.",
+        message,
         isCharter: true,
         expiresAt,
       },
