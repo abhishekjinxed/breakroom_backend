@@ -31,6 +31,12 @@ export async function listStickyNotes(req: AuthenticatedRequest, res: Response) 
   return res.json({ success: true, notes: notes.map(payload) });
 }
 
+export async function listMyStickyNotes(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  const notes = await prisma.deskStickyNote.findMany({ where: { authorId: req.userId }, orderBy: { createdAt: "desc" }, take: 100, include: stickyInclude(req.userId) });
+  return res.json({ success: true, notes: notes.map(payload) });
+}
+
 export async function createStickyNote(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const parsed = stickySchema.safeParse(req.body);
