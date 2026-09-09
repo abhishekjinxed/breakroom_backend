@@ -6,6 +6,7 @@ import {
   sendMessage,
   getChatMessages,
 } from "../services/chat.service";
+import { createAppNotification } from "../services/notification.service";
 
 export async function createMessage(
   req: AuthenticatedRequest,
@@ -36,15 +37,16 @@ export async function createMessage(
       });
     }
 
-    const message = await sendMessage(
+    const result = await sendMessage(
       req.userId,
       chatId,
       text
     );
+    await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}` });
 
     return res.status(201).json({
       success: true,
-      message,
+      message: result.message,
     });
   } catch (error) {
     console.error("SEND MESSAGE ERROR:", error);

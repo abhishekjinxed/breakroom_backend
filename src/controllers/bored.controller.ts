@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendCharterPaperPlane, sendPaperPlane } from "../services/bored.service";
 import { notifyChatLeft, notifyInboxUpdated, notifyMatch, notifyPaperPlane } from "../socket";
+import { createAppNotification } from "../services/notification.service";
 import {
   stopLooking,
 } from "../services/bored.service";
@@ -155,6 +156,7 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
   try {
     const { invite, recipient, balance } = await sendPaperPlane(req.userId, parsed.data.message);
     notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, isCharter: invite.isCharter, sender: invite.sender, expiresAt: invite.expiresAt });
+    await createAppNotification({ userId: recipient.id, type: "PAPER_PLANE", title: "Paper Plane landed", detail: `${invite.sender.anonymousUsername} sent a note to your desk.`, link: "/" });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 10 } });
   } catch (error) {
     if (error instanceof Error && error.message === "NO_AVAILABLE_RECIPIENT") {
@@ -175,6 +177,7 @@ export async function sendCharterPaperPlaneController(req: AuthenticatedRequest,
   try {
     const { invite, recipient, balance } = await sendCharterPaperPlane(req.userId, req.params.recipientId, parsed.data.message);
     notifyPaperPlane(recipient.id, { id: invite.id, message: invite.message, isCharter: true, sender: invite.sender, expiresAt: invite.expiresAt });
+    await createAppNotification({ userId: recipient.id, type: "CHARTER_PLANE", title: "Charter Plane landed", detail: `${invite.sender.anonymousUsername} sent a direct red plane to your desk.`, link: "/" });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, isCharter: true, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 100 } });
   } catch (error) {
     if (error instanceof Error && error.message === "INVALID_CHARTER_RECIPIENT") return res.status(400).json({ success: false, message: "You cannot send a Charter Plane to your own desk." });
@@ -204,6 +207,7 @@ export async function respondToPaperPlaneController(req: AuthenticatedRequest, r
       // use match_found, which is reserved for the temporary quick-match UI.
       notifyInboxUpdated(req.userId, { chatId: result.chatId });
       notifyInboxUpdated(result.senderId, { chatId: result.chatId });
+      await createAppNotification({ userId: result.senderId, type: "DIRECT_MESSAGE", title: "Paper Plane accepted", detail: "Your private conversation is ready in Inbox.", link: `/chat/${result.chatId}` });
     }
     return res.json({ success: true, ...result });
   } catch (error) {

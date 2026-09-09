@@ -61,6 +61,10 @@ enum ProfilePhotoVisibility {
 enum AppNotificationType {
   STICKY_NOTE_COMMENT
   STICKY_NOTE_REPLY
+  PAPER_PLANE
+  CHARTER_PLANE
+  DIRECT_MESSAGE
+  CONVERSATION_ENDED
 }
 
 model User {
@@ -104,6 +108,7 @@ model User {
   receivedProfilePhotoShares ProfilePhotoShare[] @relation("ProfilePhotoRecipient")
   paisaWallet PaisaWallet?
   notifications AppNotification[]
+  pushDevices PushDevice[]
 }
 
 model CoffeeQueue {
@@ -347,6 +352,19 @@ model AppNotification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
+}
+
+model PushDevice {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique @db.VarChar(255)
+  platform  String   @db.VarChar(16)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model ProfilePhoto {

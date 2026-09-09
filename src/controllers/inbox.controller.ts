@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft, notifyInboxUpdated } from "../socket";
 import { z } from "zod";
+import { createAppNotification } from "../services/notification.service";
 
 const member = { id: true, anonymousUsername: true } as const;
 
@@ -141,6 +142,9 @@ export async function deleteConversation(req: AuthenticatedRequest, res: Respons
     await tx.chat.update({ where: { id: chat.id }, data: { endedAt: now, connectionId: null } });
     return { removed: true, otherUserId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
   });
-  if (result.removed && result.otherUserId) notifyChatLeft(result.otherUserId, { chatId });
+  if (result.removed && result.otherUserId) {
+    notifyChatLeft(result.otherUserId, { chatId });
+    await createAppNotification({ userId: result.otherUserId, type: "CONVERSATION_ENDED", title: "Conversation removed", detail: "The other member ended this private conversation.", link: "/inbox" });
+  }
   return res.json({ success: true, removed: result.removed });
 }

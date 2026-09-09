@@ -49,7 +49,7 @@ export async function sendMessage(
   });
   await prisma.chat.update({ where: { id: chatId }, data: { lastMessageAt: message.createdAt } });
 
-  return message;
+  return { message, recipientId: chat.user1Id === userId ? chat.user2Id : chat.user1Id };
 }
 
 export async function getChatMessages(
