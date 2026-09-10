@@ -5,7 +5,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft } from "../socket";
 
 const reportSchema = z.object({
-  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT"]),
+  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT", "COFFEE_MESSAGE"]),
   targetId: z.string().min(1),
   reason: z.string().trim().min(3).max(500),
   details: z.string().trim().max(1000).optional(),
@@ -25,6 +25,10 @@ export async function reportContent(req: AuthenticatedRequest, res: Response) {
   if (parsed.data.targetType === "MESSAGE") {
     const message = await prisma.message.findFirst({ where: { id: parsed.data.targetId, chat: { OR: [{ user1Id: req.userId }, { user2Id: req.userId }] } }, select: { id: true } });
     if (!message) return res.status(404).json({ success: false, message: "That chat message is unavailable." });
+  }
+  if (parsed.data.targetType === "COFFEE_MESSAGE") {
+    const message = await prisma.coffeeBreakMessage.findFirst({ where: { id: parsed.data.targetId, room: { participants: { some: { userId: req.userId } } } }, select: { id: true } });
+    if (!message) return res.status(404).json({ success: false, message: "That Coffee Break message is unavailable." });
   }
   const report = await prisma.contentReport.create({ data: { reporterId: req.userId, ...parsed.data } });
   return res.status(201).json({ success: true, report });
@@ -104,6 +108,10 @@ async function getTargetPreview(targetType: string, targetId: string) {
   if (targetType === "MESSAGE") {
     const target = await prisma.message.findUnique({ where: { id: targetId }, select: { text: true, sender: { select: { anonymousUsername: true } } } });
     return target ? { label: "Chat message", text: target.text, author: target.sender.anonymousUsername } : { label: "Chat message", text: "This content is no longer available." };
+  }
+  if (targetType === "COFFEE_MESSAGE") {
+    const target = await prisma.coffeeBreakMessage.findUnique({ where: { id: targetId }, select: { text: true, sender: { select: { anonymousUsername: true } } } });
+    return target ? { label: "Coffee Break message", text: target.text, author: target.sender.anonymousUsername } : { label: "Coffee Break message", text: "This temporary message is no longer available." };
   }
   if (targetType === "STICKY_NOTE") {
     const target = await prisma.deskStickyNote.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
