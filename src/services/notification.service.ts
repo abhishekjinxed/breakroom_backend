@@ -17,7 +17,7 @@ async function sendAndroidPush(userId: string, title: string, detail: string, li
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(devices.map((device) => ({ to: device.token, title, body: detail, sound: "default", channelId: "breakroom", priority: "high", data: { url: link ?? "/notifications" } }))),
+      body: JSON.stringify(devices.map((device) => ({ to: device.token, title, body: detail, sound: "paper-plane-landing.wav", channelId: "breakroom-alerts-v2", priority: "high", data: { url: link ?? "/notifications" } }))),
     });
     const payload = await response.json().catch(() => null) as { data?: Array<{ status?: string; details?: { error?: string } }> } | null;
     const invalidTokens = devices.filter((_, index) => payload?.data?.[index]?.details?.error === "DeviceNotRegistered").map((device) => device.token);
