@@ -181,7 +181,15 @@ export async function leaveCoffeeBreak(req: AuthenticatedRequest, res: Response)
   const now = new Date();
   await prisma.coffeeBreakParticipant.update({ where: { roomId_userId: { roomId: membership.roomId, userId: req.userId } }, data: { leftAt: now } });
   const remaining = await prisma.coffeeBreakParticipant.count({ where: { roomId: membership.roomId, leftAt: null } });
-  if (!remaining) await prisma.coffeeBreakRoom.updateMany({ where: { id: membership.roomId, status: "WAITING" }, data: { status: "CANCELLED", endedAt: now } });
+  if (!remaining) {
+    // An empty room must not remain joinable for the rest of its five-minute
+    // window. Close it immediately and clear its temporary chat so the next
+    // member begins a completely fresh Coffee Break Room.
+    await prisma.$transaction([
+      prisma.coffeeBreakRoom.updateMany({ where: { id: membership.roomId, status: { in: ["WAITING", "ACTIVE"] } }, data: { status: "CANCELLED", endedAt: now } }),
+      prisma.coffeeBreakMessage.deleteMany({ where: { roomId: membership.roomId } }),
+    ]);
+  }
   return res.json({ success: true });
 }
 
