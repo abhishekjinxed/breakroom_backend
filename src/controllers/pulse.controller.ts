@@ -14,8 +14,8 @@ const pulseSchema = z.object({
 const noteSchema = z.object({ text: z.string().trim().min(1).max(500) });
 
 const pulseInclude = (userId: string) => ({
-  author: { select: { id: true, anonymousUsername: true } },
-  notes: { include: { author: { select: { id: true, anonymousUsername: true } } }, orderBy: { createdAt: "asc" as const } },
+  author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
+  notes: { include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const } },
   _count: { select: { applauds: true } },
   applauds: { where: { userId }, select: { userId: true } },
 });
@@ -57,6 +57,6 @@ export async function addNote(req: AuthenticatedRequest, res: Response) {
   const pulseId = req.params.pulseId;
   const parsed = noteSchema.safeParse(req.body);
   if (typeof pulseId !== "string" || !parsed.success) return res.status(400).json({ success: false, message: "A note is required." });
-  const note = await prisma.pulseNote.create({ data: { pulseId, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true } } } });
+  const note = await prisma.pulseNote.create({ data: { pulseId, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } } });
   return res.status(201).json({ success: true, note });
 }

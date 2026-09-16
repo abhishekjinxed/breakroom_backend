@@ -9,8 +9,8 @@ const commentSchema = z.object({ text: z.string().trim().min(1).max(300) });
 const replySchema = z.object({ text: z.string().trim().min(1).max(240) });
 
 const stickyInclude = (userId: string) => ({
-  author: { select: { id: true, anonymousUsername: true } },
-  comments: { include: { author: { select: { id: true, anonymousUsername: true } } }, orderBy: { createdAt: "asc" as const }, take: 20 },
+  author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
+  comments: { include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const }, take: 20 },
   _count: { select: { applauds: true } },
   applauds: { where: { userId }, select: { userId: true } },
 });
@@ -62,7 +62,7 @@ export async function addStickyComment(req: AuthenticatedRequest, res: Response)
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a comment up to 300 characters." });
   const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, author: { deletedAt: null } }, select: { id: true, authorId: true } });
   if (!note) return res.status(404).json({ success: false, message: "Desk Note not found." });
-  const comment = await prisma.stickyNoteComment.create({ data: { stickyNoteId: note.id, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true } } } });
+  const comment = await prisma.stickyNoteComment.create({ data: { stickyNoteId: note.id, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } } });
   if (note.authorId !== req.userId) {
     await createAppNotification({
       userId: note.authorId,
@@ -83,7 +83,7 @@ export async function replyToStickyComment(req: AuthenticatedRequest, res: Respo
   if (!note) return res.status(403).json({ success: false, message: "Only the Desk Note author can reply." });
   const updated = await prisma.stickyNoteComment.updateMany({ where: { id: req.params.commentId, stickyNoteId: note.id, authorReply: null }, data: { authorReply: parsed.data.text, authorRepliedAt: new Date() } });
   if (!updated.count) return res.status(409).json({ success: false, message: "This comment already has a reply or is unavailable." });
-  const comment = await prisma.stickyNoteComment.findUniqueOrThrow({ where: { id: req.params.commentId }, include: { author: { select: { id: true, anonymousUsername: true } } } });
+  const comment = await prisma.stickyNoteComment.findUniqueOrThrow({ where: { id: req.params.commentId }, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } } });
   if (comment.authorId !== req.userId) {
     await createAppNotification({
       userId: comment.authorId,

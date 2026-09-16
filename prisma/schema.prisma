@@ -80,6 +80,8 @@ model User {
   anonymousUsername String     @unique
   googleId          String?    @unique
   email             String?    @unique
+  publicAvatarUrl   String?    @db.VarChar(1000)
+  publicFlair       String?    @db.VarChar(40)
   bio               String?    @db.VarChar(160)
   dateOfBirth       DateTime?
   gender            String?    @db.VarChar(40)

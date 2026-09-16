@@ -34,7 +34,7 @@ export async function joinBoredQueue(userId: string) {
 
         const otherUser = await tx.user.findUniqueOrThrow({
           where: { id: otherUserId },
-          select: { id: true, anonymousUsername: true },
+          select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true },
         });
 
         return {
@@ -348,7 +348,7 @@ export async function sendPaperPlane(senderId: string, message: string) {
         blocksCreated: { none: { blockedId: senderId } },
         blocksReceived: { none: { blockerId: senderId } },
       },
-      select: { id: true, anonymousUsername: true },
+      select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true },
       take: 20,
       orderBy: { lastActiveAt: "desc" },
     });
@@ -373,7 +373,7 @@ export async function sendPaperPlane(senderId: string, message: string) {
         expiresAt,
       },
       include: {
-        sender: { select: { id: true, anonymousUsername: true } },
+        sender: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
       },
     });
 
@@ -400,7 +400,7 @@ export async function sendCharterPaperPlane(senderId: string, recipientId: strin
         blocksCreated: { none: { blockedId: senderId } },
         blocksReceived: { none: { blockerId: senderId } },
       },
-      select: { id: true, anonymousUsername: true },
+      select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true },
     });
     if (!recipient) throw new Error("CHARTER_RECIPIENT_UNAVAILABLE");
 
@@ -422,7 +422,7 @@ export async function sendCharterPaperPlane(senderId: string, recipientId: strin
         isCharter: true,
         expiresAt,
       },
-      include: { sender: { select: { id: true, anonymousUsername: true } } },
+      include: { sender: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } },
     });
     const wallet = await tx.paisaWallet.findUniqueOrThrow({ where: { userId: senderId }, select: { balance: true } });
     return { invite, recipient, balance: wallet.balance };
@@ -443,7 +443,7 @@ export async function getPendingPaperPlanes(recipientId: string) {
     orderBy: { createdAt: "desc" },
     take: 12,
     include: {
-      sender: { select: { id: true, anonymousUsername: true } },
+      sender: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
     },
   });
 }
@@ -455,8 +455,8 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
     const invite = await tx.paperPlaneInvite.findUnique({
       where: { id: inviteId },
       include: {
-        sender: { select: { id: true, anonymousUsername: true, status: true } },
-        recipient: { select: { id: true, anonymousUsername: true, status: true } },
+        sender: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true, status: true } },
+        recipient: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true, status: true } },
       },
     });
 

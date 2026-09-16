@@ -2,9 +2,9 @@ import { Response } from "express";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 
-const memberSelect = { id: true, anonymousUsername: true, bio: true, gender: true, dateOfBirth: true } as const;
+const memberSelect = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true, bio: true, gender: true, dateOfBirth: true } as const;
 
-function publicMember(member: { id: string; anonymousUsername: string; bio: string | null; gender: string | null; dateOfBirth: Date | null }) {
+function publicMember(member: { id: string; anonymousUsername: string; publicAvatarUrl: string | null; publicFlair: string | null; bio: string | null; gender: string | null; dateOfBirth: Date | null }) {
   const today = new Date();
   const birth = member.dateOfBirth;
   const age = !birth ? null : today.getUTCFullYear() - birth.getUTCFullYear() - (today.getUTCMonth() < birth.getUTCMonth() || (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate()) ? 1 : 0);

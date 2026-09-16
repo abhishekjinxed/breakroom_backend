@@ -5,7 +5,7 @@ import { notifyChatLeft, notifyInboxUpdated } from "../socket";
 import { z } from "zod";
 import { createAppNotification } from "../services/notification.service";
 
-const member = { id: true, anonymousUsername: true } as const;
+const member = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } as const;
 
 async function ensureAcceptedPlaneChats(userId: string) {
   const acceptedPlanes = await prisma.paperPlaneInvite.findMany({
@@ -71,7 +71,7 @@ export async function listInbox(req: AuthenticatedRequest, res: Response) {
 
 export async function readConversation(req: AuthenticatedRequest, res: Response) {
   const userId = req.userId!; const chatId = typeof req.params.id === "string" ? req.params.id : "";
-  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] } });
+  const chat = await prisma.chat.findFirst({ where: { id: chatId, isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] }, include: { user1: { select: member }, user2: { select: member } } });
   if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
   const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
   const activeConnection = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ requesterId: userId, recipientId: otherUserId }, { requesterId: otherUserId, recipientId: userId }] } });
@@ -83,7 +83,8 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   const hasSharedMemberPhoto = await prisma.profilePhotoShare.findFirst({ where: { recipientId: userId, photo: { ownerId: otherUserId } }, select: { photoId: true } });
   const canViewMemberProfile = memberSharedAProfile || !!hasSharedMemberPhoto;
   const myPhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, visibility: true, createdAt: true, shares: { where: { recipientId: otherUserId }, select: { recipientId: true } } } });
-  return res.json({ success: true, messages, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null, photos: myPhotos.map(({ shares, ...photo }) => ({ ...photo, sharedWithMember: shares.length > 0 })) } });
+  const otherMember = chat.user1Id === userId ? chat.user2 : chat.user1;
+  return res.json({ success: true, messages, otherMember, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null, photos: myPhotos.map(({ shares, ...photo }) => ({ ...photo, sharedWithMember: shares.length > 0 })) } });
 }
 
 const profileSharingSchema = z.object({ share: z.boolean() });

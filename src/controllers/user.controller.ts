@@ -4,6 +4,8 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { z } from "zod";
 
 const profileSchema = z.object({
+  publicAvatarUrl: z.string().trim().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image.").nullable().optional(),
+  publicFlair: z.string().trim().max(40).nullable().optional(),
   bio: z.string().trim().max(160).nullable().optional(),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime()) && new Date(`${value}T00:00:00.000Z`) <= new Date(), "Enter a valid past date.").nullable().optional(),
   gender: z.enum(["Woman", "Man", "Non-binary", "Prefer not to say", "Self-describe"]).nullable().optional(),
@@ -19,6 +21,8 @@ const userSelect = {
   createdAt: true,
   lastActiveAt: true,
   termsAcceptedAt: true,
+  publicAvatarUrl: true,
+  publicFlair: true,
   bio: true,
   dateOfBirth: true,
   gender: true,
@@ -30,6 +34,8 @@ const userSelect = {
 const publicProfileSelect = {
   id: true,
   anonymousUsername: true,
+  publicAvatarUrl: true,
+  publicFlair: true,
   bio: true,
   gender: true,
   socialLink: true,
@@ -128,6 +134,8 @@ export async function updateMyProfile(req: AuthenticatedRequest, res: Response) 
   const user = await prisma.user.update({
     where: { id: req.userId },
     data: {
+      publicAvatarUrl: value.publicAvatarUrl || null,
+      publicFlair: value.publicFlair || null,
       bio: value.bio || null,
       dateOfBirth: value.dateOfBirth ? new Date(`${value.dateOfBirth}T00:00:00.000Z`) : null,
       gender: value.gender || null,
@@ -135,8 +143,7 @@ export async function updateMyProfile(req: AuthenticatedRequest, res: Response) 
     },
     select: userSelect,
   });
-  const { dateOfBirth, ...publicUser } = user;
-  return res.json({ success: true, user: { ...publicUser, age: ageFromDateOfBirth(dateOfBirth) } });
+  return res.json({ success: true, user: { ...user, age: ageFromDateOfBirth(user.dateOfBirth) } });
 }
 
 export async function getPublicProfile(req: AuthenticatedRequest, res: Response) {
@@ -159,13 +166,12 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
     hasFullProfileAccess = !!profileIsShared;
   }
 
+  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
+  if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
   const profilePhotoCount = await prisma.profilePhoto.count({ where: { ownerId: userId } });
   const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
-  if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0) return res.status(404).json({ success: false, message: "Member not found." });
-
-  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
-  if (!user) return res.status(404).json({ success: false, message: "Member not found." });
+  if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0 && !user.publicAvatarUrl && !user.publicFlair) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;
   return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, photoAvailability: { total: profilePhotoCount, visible: visiblePhotos.length }, limitedProfile: !hasFullProfileAccess } });
 }

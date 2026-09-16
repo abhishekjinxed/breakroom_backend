@@ -17,7 +17,7 @@ const prompts = [
   "What is one thing you are looking forward to after work?",
 ];
 
-const member = { id: true, anonymousUsername: true } as const;
+const member = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } as const;
 const roomInclude = {
   participants: { orderBy: { joinedAt: "asc" as const }, include: { user: { select: member } } },
   messages: { orderBy: { createdAt: "asc" as const }, include: { sender: { select: member } } },
@@ -41,6 +41,8 @@ function roomPayload(room: any, userId: string) {
     participants: room.participants.map((participant: any) => ({
       id: participant.user.id,
       anonymousUsername: participant.user.anonymousUsername,
+      publicAvatarUrl: participant.user.publicAvatarUrl,
+      publicFlair: participant.user.publicFlair,
       joinedAt: participant.joinedAt,
       hasLeft: !!participant.leftAt,
     })),
