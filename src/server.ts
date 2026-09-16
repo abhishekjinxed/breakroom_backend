@@ -19,6 +19,7 @@ import deskRoutes from "./routes/desk.routes";
 import walletRoutes from "./routes/wallet.routes";
 import notificationRoutes from "./routes/notification.routes";
 import coffeeBreakRoutes from "./routes/coffee-break.routes";
+import ticTacToeRoutes from "./routes/tic-tac-toe.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
@@ -54,6 +55,7 @@ app.use("/api/desk", deskRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/coffee-breaks", coffeeBreakRoutes);
+app.use("/api/games/tic-tac-toe", ticTacToeRoutes);
 
 const httpServer = http.createServer(app);
 

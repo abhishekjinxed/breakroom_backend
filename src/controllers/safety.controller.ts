@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft } from "../socket";
+import { Prisma, ReportTargetType } from "@prisma/client";
+import { createAppNotification } from "../services/notification.service";
 
 const reportSchema = z.object({
   targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT", "COFFEE_MESSAGE"]),
@@ -11,11 +13,32 @@ const reportSchema = z.object({
   details: z.string().trim().max(1000).optional(),
 });
 const statusSchema = z.object({ status: z.enum(["REVIEWED", "DISMISSED"]) });
+const moderationActionSchema = z.object({ action: z.literal("DISABLE") });
 
 async function requireModerator(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   const moderators = (process.env.MODERATOR_EMAILS ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean);
   return !!user?.email && moderators.includes(user.email.toLowerCase());
+}
+
+const targetLabels: Record<ReportTargetType, string> = {
+  PULSE: "Work Pulse",
+  NOTE: "Pulse note",
+  MESSAGE: "chat message",
+  USER: "member profile",
+  STICKY_NOTE: "Desk Note",
+  STICKY_COMMENT: "Desk Note comment",
+  COFFEE_MESSAGE: "Coffee Break message",
+};
+
+async function findTargetAuthorId(tx: Prisma.TransactionClient, targetType: ReportTargetType, targetId: string) {
+  if (targetType === "PULSE") return (await tx.workPulse.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "NOTE") return (await tx.pulseNote.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "MESSAGE") return (await tx.message.findUnique({ where: { id: targetId }, select: { senderId: true } }))?.senderId;
+  if (targetType === "STICKY_NOTE") return (await tx.deskStickyNote.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "STICKY_COMMENT") return (await tx.stickyNoteComment.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "COFFEE_MESSAGE") return (await tx.coffeeBreakMessage.findUnique({ where: { id: targetId }, select: { senderId: true } }))?.senderId;
+  return (await tx.user.findUnique({ where: { id: targetId }, select: { id: true } }))?.id;
 }
 
 export async function reportContent(req: AuthenticatedRequest, res: Response) {
@@ -136,8 +159,37 @@ export async function listReports(req: AuthenticatedRequest, res: Response) {
 
 export async function resolveReport(req: AuthenticatedRequest, res: Response) {
   if (!req.userId || !(await requireModerator(req.userId)) || typeof req.params.reportId !== "string") return res.status(403).json({ success: false, message: "Moderator access required" });
-  const parsed = statusSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ success: false, message: "Invalid moderation status" });
-  const report = await prisma.contentReport.update({ where: { id: req.params.reportId }, data: { status: parsed.data.status, reviewedAt: new Date() } });
-  return res.json({ success: true, report });
+  const reportId = req.params.reportId;
+  const status = statusSchema.safeParse(req.body);
+  if (status.success) {
+    const report = await prisma.contentReport.update({ where: { id: req.params.reportId }, data: { status: status.data.status, reviewedAt: new Date() } });
+    return res.json({ success: true, report });
+  }
+  const action = moderationActionSchema.safeParse(req.body);
+  if (!action.success) return res.status(400).json({ success: false, message: "Choose a valid moderation outcome." });
+
+  const result = await prisma.$transaction(async (tx) => {
+    const report = await tx.contentReport.findUnique({ where: { id: reportId } });
+    if (!report) return null;
+    const authorId = await findTargetAuthorId(tx, report.targetType, report.targetId);
+    if (!authorId) return { missing: true };
+    const existing = await tx.moderationAction.findUnique({ where: { targetType_targetId: { targetType: report.targetType, targetId: report.targetId } } });
+    if (!existing) {
+      await tx.moderationAction.create({ data: { reportId: report.id, targetType: report.targetType, targetId: report.targetId, authorId, reason: report.reason } });
+      if (report.targetType === "USER") await tx.user.update({ where: { id: authorId }, data: { status: "DEACTIVATED", lastActiveAt: new Date() } });
+    }
+    const updated = await tx.contentReport.update({ where: { id: report.id }, data: { status: "ACTIONED", reviewedAt: new Date() } });
+    return { report: updated, authorId, targetType: report.targetType, newlyDisabled: !existing };
+  });
+  if (!result || "missing" in result) return res.status(404).json({ success: false, message: "Reported content is no longer available." });
+  if (result.newlyDisabled) {
+    await createAppNotification({
+      userId: result.authorId,
+      type: "MODERATION_ACTION",
+      title: "Content disabled by Breakroom",
+      detail: `Your ${targetLabels[result.targetType]} was disabled by an administrator for not following Breakroom’s Terms of Use.`,
+      link: "/notifications",
+    });
+  }
+  return res.json({ success: true, report: result.report, disabled: true });
 }

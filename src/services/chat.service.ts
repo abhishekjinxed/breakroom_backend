@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { disabledTargetIds } from "./moderation.service";
 
 export async function sendMessage(
   userId: string,
@@ -74,9 +75,11 @@ export async function getChatMessages(
     throw new Error("CHAT_NOT_FOUND");
   }
 
+  const disabledMessages = await disabledTargetIds("MESSAGE");
   const messages = await prisma.message.findMany({
     where: {
       chatId,
+      ...(disabledMessages.length ? { id: { notIn: disabledMessages } } : {}),
     },
     orderBy: {
       createdAt: "asc",

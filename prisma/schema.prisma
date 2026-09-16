@@ -55,10 +55,18 @@ enum CoffeeBreakRoomStatus {
   CANCELLED
 }
 
+enum TicTacToeGameStatus {
+  WAITING
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
 enum ReportStatus {
   OPEN
   REVIEWED
   DISMISSED
+  ACTIONED
 }
 
 enum ProfilePhotoVisibility {
@@ -73,6 +81,7 @@ enum AppNotificationType {
   CHARTER_PLANE
   DIRECT_MESSAGE
   CONVERSATION_ENDED
+  MODERATION_ACTION
 }
 
 model User {
@@ -121,6 +130,32 @@ model User {
   paisaWallet PaisaWallet?
   notifications AppNotification[]
   pushDevices PushDevice[]
+  ticTacToeGamesAsX TicTacToeGame[] @relation("TicTacToePlayerX")
+  ticTacToeGamesAsO TicTacToeGame[] @relation("TicTacToePlayerO")
+  ticTacToeWins TicTacToeGame[] @relation("TicTacToeWinner")
+}
+
+// A small, anonymous open match. It is intentionally not connected to a
+// private chat or Work Circle, so it cannot expose a public member directory.
+model TicTacToeGame {
+  id           String               @id @default(cuid())
+  playerXId    String
+  playerOId    String?
+  board        String               @db.VarChar(9) @default(".........")
+  turnUserId   String?
+  winnerUserId String?
+  status       TicTacToeGameStatus  @default(WAITING)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  finishedAt   DateTime?
+
+  playerX User  @relation("TicTacToePlayerX", fields: [playerXId], references: [id], onDelete: Cascade)
+  playerO User? @relation("TicTacToePlayerO", fields: [playerOId], references: [id], onDelete: SetNull)
+  winner  User? @relation("TicTacToeWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([playerXId, status])
+  @@index([playerOId, status])
 }
 
 model CoffeeQueue {
@@ -279,6 +314,22 @@ model ContentReport {
 
   @@index([status, createdAt])
   @@index([targetType, targetId])
+}
+
+// Moderation is deliberately reversible. Content remains in the database for
+// audit purposes, while normal app queries omit anything with a live action.
+model ModerationAction {
+  id         String           @id @default(cuid())
+  reportId   String           @unique
+  targetType ReportTargetType
+  targetId   String
+  authorId   String
+  reason     String           @db.VarChar(500)
+  createdAt  DateTime         @default(now())
+
+  @@unique([targetType, targetId])
+  @@index([targetType, targetId])
+  @@index([authorId, createdAt])
 }
 
 model WorkPulse {

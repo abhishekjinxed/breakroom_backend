@@ -2,6 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
+import { disabledTargetIds } from "../services/moderation.service";
 
 const ROOM_DURATION_MS = 5 * 60 * 1000;
 const WAITING_ROOM_TTL_MS = 10 * 60 * 1000;
@@ -23,10 +24,11 @@ const roomInclude = {
   messages: { orderBy: { createdAt: "asc" as const }, include: { sender: { select: member } } },
 };
 
-function roomPayload(room: any, userId: string) {
+async function roomPayload(room: any, userId: string) {
   const now = Date.now();
   const active = room.status === "ACTIVE" && room.endsAt && new Date(room.endsAt).getTime() > now;
   const ended = room.status === "ENDED";
+  const disabledMessages = new Set(await disabledTargetIds("COFFEE_MESSAGE"));
   return {
     id: room.id,
     status: room.status,
@@ -48,7 +50,7 @@ function roomPayload(room: any, userId: string) {
     })),
     // A Coffee Break is intentionally ephemeral. An ended-room response does
     // not expose earlier conversation content.
-    messages: ended ? [] : room.messages.map((message: any) => ({
+    messages: ended ? [] : room.messages.filter((message: any) => !disabledMessages.has(message.id)).map((message: any) => ({
       id: message.id,
       text: message.text,
       createdAt: message.createdAt,
@@ -81,7 +83,7 @@ async function readRoom(roomId: string, userId: string) {
     where: { id: roomId, participants: { some: { userId } } },
     include: roomInclude,
   });
-  return room ? roomPayload(room, userId) : null;
+  return room ? await roomPayload(room, userId) : null;
 }
 
 async function isBlockedWith(userId: string, memberIds: string[]) {

@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft, notifyInboxUpdated } from "../socket";
 import { z } from "zod";
 import { createAppNotification } from "../services/notification.service";
+import { disabledTargetIds } from "../services/moderation.service";
 
 const member = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } as const;
 
@@ -77,7 +78,8 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   const activeConnection = await prisma.workCircleConnection.findFirst({ where: { status: "ACCEPTED", OR: [{ requesterId: userId, recipientId: otherUserId }, { requesterId: otherUserId, recipientId: userId }] } });
   if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
-  const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
+  const disabledMessages = await disabledTargetIds("MESSAGE");
+  const messages = await prisma.message.findMany({ where: { chatId, ...(disabledMessages.length ? { id: { notIn: disabledMessages } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
   const isSharingMyProfile = chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2;
   const memberSharedAProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
   const hasSharedMemberPhoto = await prisma.profilePhotoShare.findFirst({ where: { recipientId: userId, photo: { ownerId: otherUserId } }, select: { photoId: true } });

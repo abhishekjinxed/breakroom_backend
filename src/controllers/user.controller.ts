@@ -2,6 +2,7 @@ import { Response } from "express";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { z } from "zod";
+import { disabledTargetIdsFor } from "../services/moderation.service";
 
 const profileSchema = z.object({
   publicAvatarUrl: z.string().trim().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image.").nullable().optional(),
@@ -166,9 +167,10 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
     hasFullProfileAccess = !!profileIsShared;
   }
 
-  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: publicProfileSelect });
+  const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: { not: "DEACTIVATED" } }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
-  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
+  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId, ...(disabled.STICKY_NOTE.length ? { id: { notIn: disabled.STICKY_NOTE } } : {}) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
   const profilePhotoCount = await prisma.profilePhoto.count({ where: { ownerId: userId } });
   const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
   if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0 && !user.publicAvatarUrl && !user.publicFlair) return res.status(404).json({ success: false, message: "Member not found." });
@@ -179,6 +181,6 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
 export async function listMembers(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  const users = await prisma.user.findMany({ where: { id: { not: req.userId }, deletedAt: null, anonymousUsername: query ? { contains: query, mode: "insensitive" } : undefined, blocksCreated: { none: { blockedId: req.userId } }, blocksReceived: { none: { blockerId: req.userId } } }, select: publicProfileSelect, take: 50, orderBy: { createdAt: "desc" } });
+  const users = await prisma.user.findMany({ where: { id: { not: req.userId }, deletedAt: null, status: { not: "DEACTIVATED" }, anonymousUsername: query ? { contains: query, mode: "insensitive" } : undefined, blocksCreated: { none: { blockedId: req.userId } }, blocksReceived: { none: { blockerId: req.userId } } }, select: publicProfileSelect, take: 50, orderBy: { createdAt: "desc" } });
   return res.json({ success: true, users: users.map(({ dateOfBirth, ...user }) => ({ ...user, age: ageFromDateOfBirth(dateOfBirth) })) });
 }

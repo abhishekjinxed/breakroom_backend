@@ -2,6 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
+import { disabledTargetIdsFor } from "../services/moderation.service";
 
 const pulseSchema = z.object({
   text: z.string().trim().max(200),
@@ -13,9 +14,9 @@ const pulseSchema = z.object({
 
 const noteSchema = z.object({ text: z.string().trim().min(1).max(500) });
 
-const pulseInclude = (userId: string) => ({
+const pulseInclude = (userId: string, disabledNotes: string[] = []) => ({
   author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
-  notes: { include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const } },
+  notes: { where: disabledNotes.length ? { id: { notIn: disabledNotes } } : undefined, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const } },
   _count: { select: { applauds: true } },
   applauds: { where: { userId }, select: { userId: true } },
 });
@@ -24,7 +25,8 @@ export async function listPulses(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const blocks = await prisma.userBlock.findMany({ where: { blockerId: req.userId }, select: { blockedId: true } });
   const blockedIds = blocks.map((block) => block.blockedId);
-  const pulses = await prisma.workPulse.findMany({ where: { isBreakBrief: req.query.briefs === "true", ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}) }, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId) });
+  const disabled = await disabledTargetIdsFor(["PULSE", "NOTE"]);
+  const pulses = await prisma.workPulse.findMany({ where: { isBreakBrief: req.query.briefs === "true", author: { status: { not: "DEACTIVATED" } }, ...(disabled.PULSE.length ? { id: { notIn: disabled.PULSE } } : {}), ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}) }, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId, disabled.NOTE) });
   return res.json({ success: true, pulses: pulses.map(({ applauds, ...pulse }) => ({ ...pulse, applaudedByMe: applauds.length > 0 })) });
 }
 
@@ -45,6 +47,8 @@ export async function toggleApplaud(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const pulseId = req.params.pulseId;
   if (typeof pulseId !== "string") return res.status(400).json({ success: false, message: "Invalid Work Pulse" });
+  const disabledPulses = await disabledTargetIdsFor(["PULSE"]);
+  if (disabledPulses.PULSE.includes(pulseId)) return res.status(404).json({ success: false, message: "This Work Pulse is unavailable." });
   const existing = await prisma.pulseApplaud.findUnique({ where: { userId_pulseId: { userId: req.userId, pulseId } } });
   if (existing) await prisma.pulseApplaud.delete({ where: { userId_pulseId: { userId: req.userId, pulseId } } });
   else await prisma.pulseApplaud.create({ data: { userId: req.userId, pulseId } });
@@ -57,6 +61,8 @@ export async function addNote(req: AuthenticatedRequest, res: Response) {
   const pulseId = req.params.pulseId;
   const parsed = noteSchema.safeParse(req.body);
   if (typeof pulseId !== "string" || !parsed.success) return res.status(400).json({ success: false, message: "A note is required." });
+  const disabledPulses = await disabledTargetIdsFor(["PULSE"]);
+  if (disabledPulses.PULSE.includes(pulseId)) return res.status(404).json({ success: false, message: "This Work Pulse is unavailable." });
   const note = await prisma.pulseNote.create({ data: { pulseId, authorId: req.userId, text: parsed.data.text }, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } } });
   return res.status(201).json({ success: true, note });
 }

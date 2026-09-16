@@ -32,9 +32,12 @@ export async function authenticate(
 
     const payload = verifyToken(token);
 
-    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true } });
+    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true, status: true } });
     if (!user || user.deletedAt) {
       return res.status(401).json({ success: false, message: "Account is no longer active" });
+    }
+    if (user.status === "DEACTIVATED") {
+      return res.status(403).json({ success: false, message: "Your account has been disabled by an administrator for not following Breakroom’s Terms of Use." });
     }
 
     // Presence drives random Paper Plane delivery. Refresh it for every
