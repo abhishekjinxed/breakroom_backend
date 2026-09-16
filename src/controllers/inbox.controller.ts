@@ -4,7 +4,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { notifyChatLeft, notifyInboxUpdated } from "../socket";
 import { z } from "zod";
 import { createAppNotification } from "../services/notification.service";
-import { disabledTargetIds } from "../services/moderation.service";
+import { disabledTargetIds, moderatorRemovalText } from "../services/moderation.service";
 
 const member = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } as const;
 
@@ -66,7 +66,8 @@ export async function listInbox(req: AuthenticatedRequest, res: Response) {
     const currentTime = current ? (current.lastMessageAt ?? current.createdAt).getTime() : -1;
     if (!current || chatTime > currentTime) newestByMember.set(memberId, chat);
   }
-  const conversations = Array.from(newestByMember.values()).sort((a, b) => (b.lastMessageAt ?? b.createdAt).getTime() - (a.lastMessageAt ?? a.createdAt).getTime()).map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt }));
+  const disabledMessages = new Set(await disabledTargetIds("MESSAGE"));
+  const conversations = Array.from(newestByMember.values()).sort((a, b) => (b.lastMessageAt ?? b.createdAt).getTime() - (a.lastMessageAt ?? a.createdAt).getTime()).map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: disabledMessages.has(chat.messages[0].id) ? moderatorRemovalText() : chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt }));
   return res.json({ success: true, conversations });
 }
 
@@ -79,14 +80,15 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   if (!activeConnection) return res.status(404).json({ success: false, message: "Conversation not found." });
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
   const disabledMessages = await disabledTargetIds("MESSAGE");
-  const messages = await prisma.message.findMany({ where: { chatId, ...(disabledMessages.length ? { id: { notIn: disabledMessages } } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
+  const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
+  const disabledMessageSet = new Set(disabledMessages);
   const isSharingMyProfile = chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2;
   const memberSharedAProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
   const hasSharedMemberPhoto = await prisma.profilePhotoShare.findFirst({ where: { recipientId: userId, photo: { ownerId: otherUserId } }, select: { photoId: true } });
   const canViewMemberProfile = memberSharedAProfile || !!hasSharedMemberPhoto;
   const myPhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, visibility: true, createdAt: true, shares: { where: { recipientId: otherUserId }, select: { recipientId: true } } } });
   const otherMember = chat.user1Id === userId ? chat.user2 : chat.user1;
-  return res.json({ success: true, messages, otherMember, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null, photos: myPhotos.map(({ shares, ...photo }) => ({ ...photo, sharedWithMember: shares.length > 0 })) } });
+  return res.json({ success: true, messages: messages.map((message) => disabledMessageSet.has(message.id) ? { ...message, text: moderatorRemovalText(), isUnavailable: true } : { ...message, isUnavailable: false }), otherMember, profileSharing: { isSharingMyProfile, canViewMemberProfile, memberId: canViewMemberProfile ? otherUserId : null, photos: myPhotos.map(({ shares, ...photo }) => ({ ...photo, sharedWithMember: shares.length > 0 })) } });
 }
 
 const profileSharingSchema = z.object({ share: z.boolean() });

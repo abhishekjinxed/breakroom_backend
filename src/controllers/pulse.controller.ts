@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { disabledTargetIdsFor } from "../services/moderation.service";
+import { disabledTargetIdsFor, moderatorRemovalText } from "../services/moderation.service";
 
 const pulseSchema = z.object({
   text: z.string().trim().max(200),
@@ -14,9 +14,9 @@ const pulseSchema = z.object({
 
 const noteSchema = z.object({ text: z.string().trim().min(1).max(500) });
 
-const pulseInclude = (userId: string, disabledNotes: string[] = []) => ({
+const pulseInclude = (userId: string) => ({
   author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
-  notes: { where: disabledNotes.length ? { id: { notIn: disabledNotes } } : undefined, include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const } },
+  notes: { include: { author: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } } }, orderBy: { createdAt: "asc" as const } },
   _count: { select: { applauds: true } },
   applauds: { where: { userId }, select: { userId: true } },
 });
@@ -26,8 +26,19 @@ export async function listPulses(req: AuthenticatedRequest, res: Response) {
   const blocks = await prisma.userBlock.findMany({ where: { blockerId: req.userId }, select: { blockedId: true } });
   const blockedIds = blocks.map((block) => block.blockedId);
   const disabled = await disabledTargetIdsFor(["PULSE", "NOTE"]);
-  const pulses = await prisma.workPulse.findMany({ where: { isBreakBrief: req.query.briefs === "true", author: { status: { not: "DEACTIVATED" } }, ...(disabled.PULSE.length ? { id: { notIn: disabled.PULSE } } : {}), ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}) }, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId, disabled.NOTE) });
-  return res.json({ success: true, pulses: pulses.map(({ applauds, ...pulse }) => ({ ...pulse, applaudedByMe: applauds.length > 0 })) });
+  const pulses = await prisma.workPulse.findMany({ where: { isBreakBrief: req.query.briefs === "true", author: { status: { not: "DEACTIVATED" } }, ...(blockedIds.length ? { authorId: { notIn: blockedIds } } : {}) }, orderBy: { createdAt: "desc" }, include: pulseInclude(req.userId) });
+  return res.json({ success: true, pulses: pulses.map(({ applauds, ...pulse }) => {
+    const removed = disabled.PULSE.includes(pulse.id);
+    return {
+      ...pulse,
+      text: removed ? moderatorRemovalText() : pulse.text,
+      mediaUrl: removed ? null : pulse.mediaUrl,
+      mediaType: removed ? null : pulse.mediaType,
+      isUnavailable: removed,
+      notes: pulse.notes.map((note) => disabled.NOTE.includes(note.id) ? { ...note, text: moderatorRemovalText(), isUnavailable: true } : { ...note, isUnavailable: false }),
+      applaudedByMe: applauds.length > 0,
+    };
+  }) });
 }
 
 export async function createPulse(req: AuthenticatedRequest, res: Response) {

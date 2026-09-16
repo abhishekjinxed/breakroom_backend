@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { disabledTargetIds } from "../services/moderation.service";
+import { disabledTargetIds, moderatorRemovalText } from "../services/moderation.service";
 
 const ROOM_DURATION_MS = 5 * 60 * 1000;
 const WAITING_ROOM_TTL_MS = 10 * 60 * 1000;
@@ -50,12 +50,16 @@ async function roomPayload(room: any, userId: string) {
     })),
     // A Coffee Break is intentionally ephemeral. An ended-room response does
     // not expose earlier conversation content.
-    messages: ended ? [] : room.messages.filter((message: any) => !disabledMessages.has(message.id)).map((message: any) => ({
-      id: message.id,
-      text: message.text,
-      createdAt: message.createdAt,
-      sender: message.sender,
-    })),
+    messages: ended ? [] : room.messages.map((message: any) => {
+      const unavailable = disabledMessages.has(message.id);
+      return {
+        id: message.id,
+        text: unavailable ? moderatorRemovalText() : message.text,
+        createdAt: message.createdAt,
+        sender: message.sender,
+        isUnavailable: unavailable,
+      };
+    }),
   };
 }
 

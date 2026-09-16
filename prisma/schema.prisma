@@ -411,6 +411,7 @@ model DeskStickyNote {
   authorId  String
   text      String   @db.VarChar(160)
   createdAt DateTime @default(now())
+  deletedAt DateTime?
 
   author    User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
   applauds  StickyNoteApplaud[]
@@ -418,6 +419,7 @@ model DeskStickyNote {
 
   @@index([createdAt])
   @@index([authorId, createdAt])
+  @@index([deletedAt])
 }
 
 model StickyNoteApplaud {

@@ -1,5 +1,5 @@
 import { prisma } from "../lib/prisma";
-import { disabledTargetIds } from "./moderation.service";
+import { disabledTargetIds, moderatorRemovalText } from "./moderation.service";
 
 export async function sendMessage(
   userId: string,
@@ -77,10 +77,7 @@ export async function getChatMessages(
 
   const disabledMessages = await disabledTargetIds("MESSAGE");
   const messages = await prisma.message.findMany({
-    where: {
-      chatId,
-      ...(disabledMessages.length ? { id: { notIn: disabledMessages } } : {}),
-    },
+    where: { chatId },
     orderBy: {
       createdAt: "asc",
     },
@@ -92,5 +89,5 @@ export async function getChatMessages(
     },
   });
 
-  return messages;
+  return messages.map((message) => disabledMessages.includes(message.id) ? { ...message, text: moderatorRemovalText(), isUnavailable: true } : { ...message, isUnavailable: false });
 }
