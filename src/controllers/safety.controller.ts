@@ -2,7 +2,7 @@ import { Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { notifyChatLeft } from "../socket";
+import { disconnectUserSockets, notifyChatLeft } from "../socket";
 import { Prisma, ReportTargetType } from "@prisma/client";
 import { createAppNotification } from "../services/notification.service";
 
@@ -93,6 +93,7 @@ export async function disableMemberAccount(req: AuthenticatedRequest, res: Respo
   });
   if (!result) return res.status(404).json({ success: false, message: "Member not found." });
   for (const chat of result.chats) notifyChatLeft(chat.user1Id === userId ? chat.user2Id : chat.user1Id, { chatId: chat.id });
+  disconnectUserSockets(userId, "Your account has been disabled by an administrator for not following Breakroom’s Terms of Use.");
   await createAppNotification({ userId, type: "MODERATION_ACTION", title: "Account disabled by Breakroom", detail: "Your account was disabled by an administrator for not following Breakroom’s Terms of Use.", link: "/terms" });
   return res.json({ success: true, alreadyDisabled: result.alreadyDisabled });
 }

@@ -20,6 +20,9 @@ import ticTacToeRoutes from "./routes/tic-tac-toe.routes";
 
 import { verifyToken } from "./lib/auth";
 import { prisma } from "./lib/prisma";
+import { sendMessage } from "./services/chat.service";
+import { safetyErrorMessage } from "./services/content-safety.service";
+import { createAppNotification } from "./services/notification.service";
 import {
   initializeSocket,
   registerUserSocket,
@@ -28,7 +31,23 @@ import {
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = new Set([
+  "https://breakroomfrontend-production.up.railway.app",
+  "http://localhost:8081",
+  "http://localhost:19006",
+  ...(process.env.ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean),
+]);
+const allowOrigin = (origin: string | undefined, callback: (error: Error | null, allowed?: boolean) => void) => {
+  if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+  callback(new Error("Origin is not allowed"));
+};
+const isAdult = (dateOfBirth: Date | null) => {
+  if (!dateOfBirth) return false;
+  const today = new Date();
+  return dateOfBirth <= new Date(Date.UTC(today.getUTCFullYear() - 18, today.getUTCMonth(), today.getUTCDate()));
+};
+
+app.use(cors({ origin: allowOrigin }));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
@@ -54,9 +73,7 @@ app.use("/api/games/tic-tac-toe", ticTacToeRoutes);
 const httpServer = http.createServer(app);
 
 const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: allowOrigin },
 });
 
 initializeSocket(io);
@@ -71,8 +88,8 @@ io.use(async (socket, next) => {
 
     const payload = verifyToken(token);
 
-    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true } });
-    if (!user || user.deletedAt) return next(new Error("Account is no longer active"));
+    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { deletedAt: true, status: true } });
+    if (!user || user.deletedAt || user.status === "DEACTIVATED") return next(new Error("Account is no longer active"));
 
     socket.data.userId = payload.userId;
 
@@ -90,9 +107,18 @@ io.on("connection", (socket) => {
 
   socket.on("chat:join", async (chatId: string) => {
     try {
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true } });
-      if (!user?.termsAcceptedAt) {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true, dateOfBirth: true, status: true, deletedAt: true } });
+      if (!user || user.deletedAt || user.status === "DEACTIVATED") {
+        socket.emit("chat:error", { message: "Your account is no longer active." });
+        socket.disconnect(true);
+        return;
+      }
+      if (!user.termsAcceptedAt) {
         socket.emit("chat:error", { message: "Accept the Terms of Use before joining a conversation." });
+        return;
+      }
+      if (!isAdult(user.dateOfBirth)) {
+        socket.emit("chat:error", { message: "Breakroom chat is available only to members aged 18 and over. Add your date of birth in Account." });
         return;
       }
       const chat = await prisma.chat.findFirst({
@@ -146,57 +172,23 @@ io.on("connection", (socket) => {
       text: string;
     }) => {
       try {
-        const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true } });
-        if (!user?.termsAcceptedAt) {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { termsAcceptedAt: true, dateOfBirth: true, status: true, deletedAt: true } });
+        if (!user || user.deletedAt || user.status === "DEACTIVATED") {
+          socket.emit("chat:error", { message: "Your account is no longer active." });
+          socket.disconnect(true);
+          return;
+        }
+        if (!user.termsAcceptedAt) {
           socket.emit("chat:error", { message: "Accept the Terms of Use before sending messages." });
           return;
         }
-        const messageText = text?.trim();
-
-        if (!messageText) {
+        if (!isAdult(user.dateOfBirth)) {
+          socket.emit("chat:error", { message: "Breakroom chat is available only to members aged 18 and over. Add your date of birth in Account." });
           return;
         }
-
-        if (messageText.length > 2000) {
-          socket.emit("chat:error", {
-            message: "Message cannot exceed 2000 characters",
-          });
-
-          return;
-        }
-
-        const chat = await prisma.chat.findFirst({
-          where: {
-            id: chatId,
-            endedAt: null,
-            OR: [
-              {
-                user1Id: userId,
-              },
-              {
-                user2Id: userId,
-              },
-            ],
-          },
-        });
-
-        if (!chat) {
-          socket.emit("chat:error", {
-            message: "Chat not found",
-          });
-
-          return;
-        }
-
-
-        const message = await prisma.message.create({
-          data: {
-            chatId,
-            senderId: userId,
-            text: messageText,
-          },
-        });
-        await prisma.chat.update({ where: { id: chatId }, data: { lastMessageAt: message.createdAt } });
+        const result = await sendMessage(userId, chatId, typeof text === "string" ? text : "");
+        const message = result.message;
+        await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}` });
 
         io.to(`chat:${chatId}`).emit(
           "chat:message",
@@ -214,9 +206,7 @@ io.on("connection", (socket) => {
           error
         );
 
-        socket.emit("chat:error", {
-          message: "Unable to send message",
-        });
+        socket.emit("chat:error", { message: safetyErrorMessage(error) ?? (error instanceof Error && error.message === "EMPTY_MESSAGE" ? "Message cannot be empty" : error instanceof Error && error.message === "MESSAGE_TOO_LONG" ? "Message cannot exceed 2000 characters" : error instanceof Error && error.message === "CHAT_NOT_FOUND" ? "Chat not found" : "Unable to send message") });
       }
     }
   );

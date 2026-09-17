@@ -102,3 +102,14 @@ export function notifyAppNotification(
   const socketId = userSockets.get(userId);
   if (socketId) io.to(socketId).emit("notification:created", data);
 }
+
+export function disconnectUserSockets(userId: string, reason = "Your account is no longer active.") {
+  if (!io) return;
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.userId === userId) {
+      socket.emit("account:disabled", { message: reason });
+      socket.disconnect(true);
+    }
+  }
+  userSockets.delete(userId);
+}

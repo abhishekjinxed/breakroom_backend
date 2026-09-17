@@ -9,7 +9,7 @@ const profileSchema = z.object({
   publicAvatarUrl: z.string().trim().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image.").nullable().optional(),
   publicFlair: z.string().trim().max(40).nullable().optional(),
   bio: z.string().trim().max(160).nullable().optional(),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime()) && new Date(`${value}T00:00:00.000Z`) <= new Date(), "Enter a valid past date.").nullable().optional(),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime()) && new Date(`${value}T00:00:00.000Z`) <= new Date(), "Enter a valid past date.").refine((value) => (ageFromDateOfBirth(new Date(`${value}T00:00:00.000Z`)) ?? 0) >= 18, "Breakroom is available only to members aged 18 and over.").nullable().optional(),
   gender: z.enum(["Woman", "Man", "Non-binary", "Prefer not to say", "Self-describe"]).nullable().optional(),
   socialLink: z.string().trim().url().max(500).nullable().optional(),
 });
