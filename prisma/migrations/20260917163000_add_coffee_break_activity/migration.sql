@@ -1,0 +1,1 @@
+ALTER TABLE "CoffeeBreakMessage" ADD COLUMN "isSystem" BOOLEAN NOT NULL DEFAULT false;

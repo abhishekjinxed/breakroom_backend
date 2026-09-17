@@ -176,6 +176,7 @@ model CoffeeBreakMessage {
   roomId    String
   senderId  String
   text      String   @db.VarChar(500)
+  isSystem  Boolean  @default(false)
   createdAt DateTime @default(now())
 
   room   CoffeeBreakRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)

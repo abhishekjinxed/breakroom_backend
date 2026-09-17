@@ -57,6 +57,7 @@ async function roomPayload(room: any, userId: string) {
         text: unavailable ? moderatorRemovalText() : message.text,
         createdAt: message.createdAt,
         sender: message.sender,
+        isSystem: message.isSystem,
         isUnavailable: unavailable,
       };
     }),
@@ -161,6 +162,7 @@ export async function joinCoffeeBreak(req: AuthenticatedRequest, res: Response) 
       const room = await tx.coffeeBreakRoom.create({
         data: { prompt: prompts[Math.floor(Math.random() * prompts.length)], participants: { create: { userId } } },
       });
+      await tx.coffeeBreakMessage.create({ data: { roomId: room.id, senderId: userId, text: "joined the Coffee Break.", isSystem: true } });
       return { roomId: room.id, alreadyJoined: false };
     }
 
@@ -179,6 +181,7 @@ export async function joinCoffeeBreak(req: AuthenticatedRequest, res: Response) 
     } else {
       await tx.coffeeBreakParticipant.create({ data: { roomId: selected.id, userId } });
     }
+    await tx.coffeeBreakMessage.create({ data: { roomId: selected.id, senderId: userId, text: "joined the Coffee Break.", isSystem: true } });
     const participantCount = selected.participants.length + 1;
     if (selected.status === "WAITING" && participantCount >= MIN_PARTICIPANTS) {
       const startedAt = new Date();
@@ -197,18 +200,21 @@ export async function leaveCoffeeBreak(req: AuthenticatedRequest, res: Response)
   const membership = await prisma.coffeeBreakParticipant.findFirst({
     where: { userId: req.userId, leftAt: null, room: { status: { in: ["WAITING", "ACTIVE"] } } },
     orderBy: { joinedAt: "desc" },
-    select: { roomId: true },
+    select: { roomId: true, room: { select: { status: true } } },
   });
   if (!membership) return res.json({ success: true });
   const now = new Date();
-  await prisma.coffeeBreakParticipant.update({ where: { roomId_userId: { roomId: membership.roomId, userId: req.userId } }, data: { leftAt: now } });
+  await prisma.$transaction([
+    prisma.coffeeBreakParticipant.update({ where: { roomId_userId: { roomId: membership.roomId, userId: req.userId } }, data: { leftAt: now } }),
+    prisma.coffeeBreakMessage.create({ data: { roomId: membership.roomId, senderId: req.userId, text: "left the Coffee Break.", isSystem: true } }),
+  ]);
   const remaining = await prisma.coffeeBreakParticipant.count({ where: { roomId: membership.roomId, leftAt: null } });
   if (!remaining) {
     // An empty room must not remain joinable for the rest of its five-minute
     // window. Close it immediately and clear its temporary chat so the next
     // member begins a completely fresh Coffee Break Room.
     await prisma.$transaction([
-      prisma.coffeeBreakRoom.updateMany({ where: { id: membership.roomId, status: { in: ["WAITING", "ACTIVE"] } }, data: { status: "CANCELLED", endedAt: now } }),
+      prisma.coffeeBreakRoom.updateMany({ where: { id: membership.roomId, status: { in: ["WAITING", "ACTIVE"] } }, data: { status: membership.room.status === "ACTIVE" ? "ENDED" : "CANCELLED", endedAt: now } }),
       prisma.coffeeBreakMessage.deleteMany({ where: { roomId: membership.roomId } }),
     ]);
   }
