@@ -13,29 +13,12 @@ enum UserStatus {
   DEACTIVATED
 }
 
-enum PulseMediaType {
-  IMAGE
-  VIDEO
-}
-
 enum PaperPlaneStatus {
   PENDING
   ACCEPTED
   DECLINED
   EXPIRED
   CANCELLED
-}
-
-enum WorkCircleStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
-  REMOVED
-}
-
-enum ConnectionRequestType {
-  PLANE
-  EMPTY_DESK
 }
 
 enum ReportTargetType {
@@ -104,24 +87,14 @@ model User {
   createdChats Chat[] @relation("ChatUser1")
   joinedChats  Chat[] @relation("ChatUser2")
   messages     Message[]
-  pulses       WorkPulse[]
-  applauds     PulseApplaud[]
-  notes        PulseNote[]
   reports      ContentReport[] @relation("Reporter")
   blocksCreated UserBlock[] @relation("Blocker")
   blocksReceived UserBlock[] @relation("Blocked")
   sentPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneSender")
   receivedPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneRecipient")
-  sentConnectionRequests WorkCircleConnection[] @relation("WorkCircleRequester")
-  receivedConnectionRequests WorkCircleConnection[] @relation("WorkCircleRecipient")
   coffeeQueue CoffeeQueue?
   coffeeBreakParticipants CoffeeBreakParticipant[]
   coffeeBreakMessages CoffeeBreakMessage[]
-  dailyResponses DailyDeskResponse[]
-  challengeResponses CultureChallengeResponse[]
-  interests UserInterest[]
-  kudosSent Kudos[] @relation("KudosSender")
-  kudosReceived Kudos[] @relation("KudosRecipient")
   deskStickyNotes DeskStickyNote[]
   stickyApplauds StickyNoteApplaud[]
   stickyComments StickyNoteComment[]
@@ -211,64 +184,6 @@ model CoffeeBreakMessage {
   @@index([roomId, createdAt])
 }
 
-model DailyDeskResponse {
-  id String @id @default(cuid())
-  userId String
-  promptDate DateTime @db.Date
-  text String @db.VarChar(240)
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@unique([userId, promptDate])
-  @@index([promptDate, createdAt])
-}
-
-model CultureChallengeResponse {
-  id String @id @default(cuid())
-  userId String
-  challengeKey String @db.VarChar(40)
-  text String @db.VarChar(160)
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@unique([userId, challengeKey])
-  @@index([challengeKey, createdAt])
-}
-
-model UserInterest {
-  userId String
-  interest String @db.VarChar(40)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@id([userId, interest])
-}
-
-model Kudos {
-  id String @id @default(cuid())
-  senderId String
-  recipientId String
-  message String @db.VarChar(240)
-  createdAt DateTime @default(now())
-  sender User @relation("KudosSender", fields: [senderId], references: [id], onDelete: Cascade)
-  recipient User @relation("KudosRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  @@index([createdAt])
-  @@index([recipientId, createdAt])
-}
-
-model WorkCircleConnection {
-  id          String           @id @default(cuid())
-  requesterId String
-  recipientId String
-  status      WorkCircleStatus @default(PENDING)
-  requestType ConnectionRequestType @default(EMPTY_DESK)
-  createdAt   DateTime         @default(now())
-  respondedAt DateTime?
-
-  requester User @relation("WorkCircleRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  recipient User @relation("WorkCircleRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
-  directChat Chat?
-
-  @@unique([requesterId, recipientId])
-  @@index([recipientId, status])
-}
-
 model PaperPlaneInvite {
   id          String           @id @default(cuid())
   senderId    String
@@ -332,49 +247,6 @@ model ModerationAction {
   @@index([authorId, createdAt])
 }
 
-model WorkPulse {
-  id        String          @id @default(cuid())
-  authorId  String
-  text      String          @db.VarChar(500)
-  mediaUrl  String?
-  mediaType PulseMediaType?
-  locationLabel String? @db.VarChar(160)
-  isBreakBrief Boolean @default(false)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-
-  author    User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  applauds  PulseApplaud[]
-  notes     PulseNote[]
-
-  @@index([createdAt])
-}
-
-model PulseApplaud {
-  userId  String
-  pulseId String
-  createdAt DateTime @default(now())
-
-  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pulse WorkPulse @relation(fields: [pulseId], references: [id], onDelete: Cascade)
-
-  @@id([userId, pulseId])
-  @@index([pulseId])
-}
-
-model PulseNote {
-  id        String   @id @default(cuid())
-  pulseId   String
-  authorId  String
-  text      String   @db.VarChar(500)
-  createdAt DateTime @default(now())
-
-  pulse  WorkPulse @relation(fields: [pulseId], references: [id], onDelete: Cascade)
-  author User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-
-  @@index([pulseId, createdAt])
-}
-
 model Chat {
   id        String   @id @default(cuid())
   user1Id   String
@@ -382,15 +254,12 @@ model Chat {
   createdAt DateTime @default(now())
   endedAt   DateTime?
   isDirect  Boolean  @default(false)
-  connectionId String? @unique
   lastMessageAt DateTime?
   profileSharedByUser1 Boolean @default(false)
   profileSharedByUser2 Boolean @default(false)
 
   user1 User @relation("ChatUser1", fields: [user1Id], references: [id])
   user2 User @relation("ChatUser2", fields: [user2Id], references: [id])
-  connection WorkCircleConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-
   messages Message[]
 }
 

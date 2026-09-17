@@ -1,150 +1,9 @@
 import { Response } from "express";
 import { z } from "zod";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { getPendingPaperPlanes, joinBoredQueue , leaveChat, respondToPaperPlane, sendCharterPaperPlane, sendPaperPlane } from "../services/bored.service";
-import { notifyChatLeft, notifyInboxUpdated, notifyMatch, notifyPaperPlane } from "../socket";
+import { getPendingPaperPlanes, respondToPaperPlane, sendCharterPaperPlane, sendPaperPlane } from "../services/bored.service";
+import { notifyInboxUpdated, notifyPaperPlane } from "../socket";
 import { createAppNotification } from "../services/notification.service";
-import {
-  stopLooking,
-} from "../services/bored.service";
-
-export async function joinBored(
-  req: AuthenticatedRequest,
-  res: Response
-) {
-  try {
-    if (!req.userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-    }
-
-    const result = await joinBoredQueue(req.userId);
-
-    return res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    console.error("JOIN BORED ERROR:", error);
-
-    if (error instanceof Error) {
-      if (error.message === "USER_NOT_FOUND") {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      if (error.message === "ALREADY_IN_CHAT") {
-        return res.status(409).json({
-          success: false,
-          message: "You are already in a chat",
-        });
-      }
-    }
-
-    return res.status(500).json({
-      success: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Unable to join bored queue",
-    });
-  }
-}
-
-
-export async function leaveBoredChat(
-  req: AuthenticatedRequest,
-  res: Response
-) {
-  try {
-    if (!req.userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      });
-    }
-
-    const { otherUserId, ...result } = await leaveChat(req.userId);
-
-    if (otherUserId && result.chatId) {
-      notifyChatLeft(otherUserId, { chatId: result.chatId });
-    }
-
-    return res.json(result);
-  } catch (error) {
-    console.error("LEAVE CHAT ERROR:", error);
-
-    if (error instanceof Error) {
-      if (error.message === "USER_NOT_FOUND") {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      if (error.message === "NOT_IN_CHAT") {
-        return res.status(409).json({
-          success: false,
-          message: "You are not currently in a chat",
-        });
-      }
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to leave chat",
-    });
-  }
-}
-
-export async function stopLookingController(
-  req: AuthenticatedRequest,
-  res: Response
-) {
-  try {
-    if (!req.userId) {
-      return res.status(401).json({
-        success: false,
-        message:
-          "Authentication required",
-      });
-    }
-
-    const result =
-      await stopLooking(
-        req.userId
-      );
-
-    return res.json(result);
-  } catch (error) {
-    console.error(
-      "STOP LOOKING ERROR:",
-      error
-    );
-
-    if (
-      error instanceof Error &&
-      error.message ===
-        "USER_NOT_FOUND"
-    ) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Unable to stop looking",
-    });
-  }
-}
-
 const paperPlaneSchema = z.object({ message: z.string().trim().min(1).max(160) });
 const paperPlaneResponseSchema = z.object({ accept: z.boolean() });
 
@@ -203,8 +62,7 @@ export async function respondToPaperPlaneController(req: AuthenticatedRequest, r
   try {
     const result = await respondToPaperPlane(req.userId, req.params.inviteId, parsed.data.accept);
     if (result.accepted && result.chatId) {
-      // A Paper Plane becomes a persistent Inbox conversation. It must not
-      // use match_found, which is reserved for the temporary quick-match UI.
+    // A Paper Plane becomes a persistent Inbox conversation.
       notifyInboxUpdated(req.userId, { chatId: result.chatId });
       notifyInboxUpdated(result.senderId, { chatId: result.chatId });
       await createAppNotification({ userId: result.senderId, type: "DIRECT_MESSAGE", title: "Paper Plane accepted", detail: "Your private conversation is ready in Inbox.", link: `/chat/${result.chatId}` });

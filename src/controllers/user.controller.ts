@@ -177,10 +177,3 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   const { dateOfBirth, ...publicUser } = user;
   return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, photoAvailability: { total: profilePhotoCount, visible: visiblePhotos.length }, limitedProfile: !hasFullProfileAccess } });
 }
-
-export async function listMembers(req: AuthenticatedRequest, res: Response) {
-  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  const users = await prisma.user.findMany({ where: { id: { not: req.userId }, deletedAt: null, status: { not: "DEACTIVATED" }, anonymousUsername: query ? { contains: query, mode: "insensitive" } : undefined, blocksCreated: { none: { blockedId: req.userId } }, blocksReceived: { none: { blockerId: req.userId } } }, select: publicProfileSelect, take: 50, orderBy: { createdAt: "desc" } });
-  return res.json({ success: true, users: users.map(({ dateOfBirth, ...user }) => ({ ...user, age: ageFromDateOfBirth(dateOfBirth) })) });
-}

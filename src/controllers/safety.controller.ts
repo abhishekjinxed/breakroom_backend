@@ -22,8 +22,8 @@ async function requireModerator(userId: string) {
 }
 
 const targetLabels: Record<ReportTargetType, string> = {
-  PULSE: "Work Pulse",
-  NOTE: "Pulse note",
+  PULSE: "Retired Pulse content",
+  NOTE: "Retired Pulse note",
   MESSAGE: "chat message",
   USER: "member profile",
   STICKY_NOTE: "Desk Note",
@@ -32,8 +32,7 @@ const targetLabels: Record<ReportTargetType, string> = {
 };
 
 async function findTargetAuthorId(tx: Prisma.TransactionClient, targetType: ReportTargetType, targetId: string) {
-  if (targetType === "PULSE") return (await tx.workPulse.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
-  if (targetType === "NOTE") return (await tx.pulseNote.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "PULSE" || targetType === "NOTE") return undefined;
   if (targetType === "MESSAGE") return (await tx.message.findUnique({ where: { id: targetId }, select: { senderId: true } }))?.senderId;
   if (targetType === "STICKY_NOTE") return (await tx.deskStickyNote.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
   if (targetType === "STICKY_COMMENT") return (await tx.stickyNoteComment.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
@@ -63,12 +62,10 @@ export async function blockUser(req: AuthenticatedRequest, res: Response) {
   if (req.userId === blockedId) return res.status(400).json({ success: false, message: "You cannot block yourself." });
   await prisma.$transaction(async (tx) => {
     await tx.userBlock.upsert({ where: { blockerId_blockedId: { blockerId: req.userId!, blockedId } }, create: { blockerId: req.userId!, blockedId }, update: {} });
-    // Blocking is immediate: remove any direct connection so neither person
-    // can continue sending messages through an already-open conversation.
-    const chats = await tx.chat.findMany({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: req.userId!, user2Id: blockedId }, { user1Id: blockedId, user2Id: req.userId! }] }, select: { id: true, connectionId: true } });
+    // Blocking is immediate: close any private Paper Plane conversation.
+    const chats = await tx.chat.findMany({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: req.userId!, user2Id: blockedId }, { user1Id: blockedId, user2Id: req.userId! }] }, select: { id: true } });
     if (chats.length) {
-      await tx.chat.updateMany({ where: { id: { in: chats.map((chat) => chat.id) } }, data: { endedAt: new Date(), connectionId: null } });
-      await tx.workCircleConnection.updateMany({ where: { id: { in: chats.map((chat) => chat.connectionId).filter((id): id is string => !!id) }, status: "ACCEPTED" }, data: { status: "REMOVED", respondedAt: new Date() } });
+      await tx.chat.updateMany({ where: { id: { in: chats.map((chat) => chat.id) } }, data: { endedAt: new Date() } });
     }
   });
   return res.json({ success: true });
@@ -92,11 +89,7 @@ export async function deleteMyAccount(req: AuthenticatedRequest, res: Response) 
 
     await tx.chat.updateMany({
       where: { id: { in: chats.map((chat) => chat.id) } },
-      data: { endedAt: now, connectionId: null },
-    });
-    await tx.workCircleConnection.updateMany({
-      where: { OR: [{ requesterId: userId }, { recipientId: userId }], status: { in: ["PENDING", "ACCEPTED"] } },
-      data: { status: "REMOVED", respondedAt: now },
+      data: { endedAt: now },
     });
     await tx.paperPlaneInvite.updateMany({
       where: { status: "PENDING", OR: [{ senderId: userId }, { recipientId: userId }] },
@@ -120,14 +113,7 @@ export async function getModeratorStatus(req: AuthenticatedRequest, res: Respons
 }
 
 async function getTargetPreview(targetType: string, targetId: string) {
-  if (targetType === "PULSE") {
-    const target = await prisma.workPulse.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
-    return target ? { label: "Pulse", text: target.text, author: target.author.anonymousUsername } : { label: "Pulse", text: "This content is no longer available." };
-  }
-  if (targetType === "NOTE") {
-    const target = await prisma.pulseNote.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
-    return target ? { label: "Pulse note", text: target.text, author: target.author.anonymousUsername } : { label: "Pulse note", text: "This content is no longer available." };
-  }
+  if (targetType === "PULSE" || targetType === "NOTE") return { label: "Retired content", text: "This legacy content is no longer available." };
   if (targetType === "MESSAGE") {
     const target = await prisma.message.findUnique({ where: { id: targetId }, select: { text: true, sender: { select: { anonymousUsername: true } } } });
     return target ? { label: "Chat message", text: target.text, author: target.sender.anonymousUsername } : { label: "Chat message", text: "This content is no longer available." };

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addMyProfilePhoto, deleteMyProfilePhoto, getMe, getPublicProfile, listMembers, listMyProfilePhotos, updateMyProfile, updateMyProfilePhoto } from "../controllers/user.controller";
+import { addMyProfilePhoto, deleteMyProfilePhoto, getMe, getPublicProfile, listMyProfilePhotos, updateMyProfile, updateMyProfilePhoto } from "../controllers/user.controller";
 import { authenticate } from "../middleware/auth.middleware";
 import safetyRoutes from "./safety.routes";
 import { registerPushDevice, unregisterPushDevice } from "../controllers/push.controller";
@@ -14,7 +14,6 @@ router.patch("/me/profile-photos/:photoId", authenticate, updateMyProfilePhoto);
 router.delete("/me/profile-photos/:photoId", authenticate, deleteMyProfilePhoto);
 router.post("/me/push-devices", authenticate, registerPushDevice);
 router.delete("/me/push-devices", authenticate, unregisterPushDevice);
-router.get("/users", authenticate, listMembers);
 router.get("/users/:userId", authenticate, getPublicProfile);
 router.use("/me", safetyRoutes);
 
