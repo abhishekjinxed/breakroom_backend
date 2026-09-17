@@ -164,7 +164,21 @@ export async function joinCoffeeBreak(req: AuthenticatedRequest, res: Response) 
       return { roomId: room.id, alreadyJoined: false };
     }
 
-    await tx.coffeeBreakParticipant.create({ data: { roomId: selected.id, userId } });
+    // A member can leave and later return while a room is still forming or
+    // active. The participant key is (roomId, userId), so revive that row
+    // instead of attempting a duplicate insert.
+    const priorMembership = await tx.coffeeBreakParticipant.findUnique({
+      where: { roomId_userId: { roomId: selected.id, userId } },
+      select: { roomId: true },
+    });
+    if (priorMembership) {
+      await tx.coffeeBreakParticipant.update({
+        where: { roomId_userId: { roomId: selected.id, userId } },
+        data: { leftAt: null, joinedAt: new Date() },
+      });
+    } else {
+      await tx.coffeeBreakParticipant.create({ data: { roomId: selected.id, userId } });
+    }
     const participantCount = selected.participants.length + 1;
     if (selected.status === "WAITING" && participantCount >= MIN_PARTICIPANTS) {
       const startedAt = new Date();
