@@ -71,6 +71,32 @@ export async function blockUser(req: AuthenticatedRequest, res: Response) {
   return res.json({ success: true });
 }
 
+/** Administrative account blocks are reserved for authorized moderators. */
+export async function disableMemberAccount(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId || !(await requireModerator(req.userId)) || typeof req.params.userId !== "string") return res.status(403).json({ success: false, message: "Moderator access required" });
+  const userId = req.params.userId;
+  if (userId === req.userId) return res.status(400).json({ success: false, message: "You cannot disable your own moderator account." });
+  const result = await prisma.$transaction(async (tx) => {
+    const member = await tx.user.findFirst({ where: { id: userId, deletedAt: null }, select: { id: true, status: true } });
+    if (!member) return null;
+    const now = new Date();
+    const chats = await tx.chat.findMany({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: userId }, { user2Id: userId }] }, select: { id: true, user1Id: true, user2Id: true } });
+    await tx.chat.updateMany({ where: { id: { in: chats.map((chat) => chat.id) } }, data: { endedAt: now } });
+    await tx.paperPlaneInvite.updateMany({ where: { status: "PENDING", OR: [{ senderId: userId }, { recipientId: userId }] }, data: { status: "CANCELLED", respondedAt: now } });
+    await tx.coffeeQueue.deleteMany({ where: { userId } });
+    await tx.coffeeBreakParticipant.updateMany({ where: { userId, leftAt: null, room: { status: { in: ["WAITING", "ACTIVE"] } } }, data: { leftAt: now } });
+    const report = await tx.contentReport.create({ data: { reporterId: req.userId!, targetType: "USER", targetId: userId, reason: "Moderator account block", details: "Account disabled directly by an authorized moderator." } });
+    await tx.moderationAction.upsert({ where: { targetType_targetId: { targetType: "USER", targetId: userId } }, create: { reportId: report.id, targetType: "USER", targetId: userId, authorId: userId, reason: "Moderator account block" }, update: {} });
+    await tx.user.update({ where: { id: userId }, data: { status: "DEACTIVATED", lastActiveAt: now } });
+    await tx.contentReport.update({ where: { id: report.id }, data: { status: "ACTIONED", reviewedAt: now } });
+    return { chats, alreadyDisabled: member.status === "DEACTIVATED" };
+  });
+  if (!result) return res.status(404).json({ success: false, message: "Member not found." });
+  for (const chat of result.chats) notifyChatLeft(chat.user1Id === userId ? chat.user2Id : chat.user1Id, { chatId: chat.id });
+  await createAppNotification({ userId, type: "MODERATION_ACTION", title: "Account disabled by Breakroom", detail: "Your account was disabled by an administrator for not following Breakroom’s Terms of Use.", link: "/terms" });
+  return res.json({ success: true, alreadyDisabled: result.alreadyDisabled });
+}
+
 export async function acceptTerms(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const user = await prisma.user.update({ where: { id: req.userId }, data: { termsAcceptedAt: new Date() }, select: { id: true, anonymousUsername: true, status: true, createdAt: true, lastActiveAt: true, termsAcceptedAt: true } });
