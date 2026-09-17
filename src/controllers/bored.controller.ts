@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getPendingPaperPlanes, respondToPaperPlane, sendCharterPaperPlane, sendPaperPlane } from "../services/bored.service";
 import { notifyInboxUpdated, notifyPaperPlane } from "../socket";
 import { createAppNotification } from "../services/notification.service";
+import { safetyErrorMessage } from "../services/content-safety.service";
 const paperPlaneSchema = z.object({ message: z.string().trim().min(1).max(160) });
 const paperPlaneResponseSchema = z.object({ accept: z.boolean() });
 
@@ -18,6 +19,8 @@ export async function sendPaperPlaneController(req: AuthenticatedRequest, res: R
     await createAppNotification({ userId: recipient.id, type: "PAPER_PLANE", title: "Paper Plane landed", detail: `${invite.sender.anonymousUsername} sent a note to your desk.`, link: "/" });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 10 } });
   } catch (error) {
+    const safetyMessage = safetyErrorMessage(error);
+    if (safetyMessage) return res.status(429).json({ success: false, message: safetyMessage });
     if (error instanceof Error && error.message === "NO_AVAILABLE_RECIPIENT") {
       return res.status(409).json({ success: false, message: "No one is available for a break right now. Try again shortly." });
     }
@@ -39,6 +42,8 @@ export async function sendCharterPaperPlaneController(req: AuthenticatedRequest,
     await createAppNotification({ userId: recipient.id, type: "CHARTER_PLANE", title: "Charter Plane landed", detail: `${invite.sender.anonymousUsername} sent a direct red plane to your desk.`, link: "/" });
     return res.status(201).json({ success: true, invite: { id: invite.id, message: invite.message, isCharter: true, expiresAt: invite.expiresAt }, wallet: { balance, currency: "Paisa", paperPlaneCost: 100 } });
   } catch (error) {
+    const safetyMessage = safetyErrorMessage(error);
+    if (safetyMessage) return res.status(429).json({ success: false, message: safetyMessage });
     if (error instanceof Error && error.message === "INVALID_CHARTER_RECIPIENT") return res.status(400).json({ success: false, message: "You cannot send a Charter Plane to your own desk." });
     if (error instanceof Error && error.message === "CHARTER_RECIPIENT_UNAVAILABLE") return res.status(404).json({ success: false, message: "This member is unavailable for a Charter Plane." });
     if (error instanceof Error && error.message === "CHARTER_ALREADY_SENT") return res.status(409).json({ success: false, message: "Your Charter Plane is already on this member’s desk for 24 hours." });

@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { createAppNotification } from "../services/notification.service";
 import { authorRemovalText, disabledTargetIdsFor, moderatorRemovalText } from "../services/moderation.service";
+import { requireRateLimit, requireSafeText, safetyErrorMessage } from "../services/content-safety.service";
 
 const stickySchema = z.object({ text: z.string().trim().min(1).max(160) });
 const commentSchema = z.object({ text: z.string().trim().min(1).max(300) });
@@ -56,6 +57,7 @@ export async function createStickyNote(req: AuthenticatedRequest, res: Response)
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const parsed = stickySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a Desk Note up to 160 characters." });
+  try { await requireSafeText(req.userId, parsed.data.text, "Desk Note"); await requireRateLimit(req.userId, "note"); } catch (error) { const message = safetyErrorMessage(error); if (message) return res.status(429).json({ success: false, message }); throw error; }
   const note = await prisma.deskStickyNote.create({ data: { authorId: req.userId, text: parsed.data.text }, include: stickyInclude(req.userId) });
   return res.status(201).json({ success: true, note: payload(note, { STICKY_NOTE: [], STICKY_COMMENT: [] }) });
 }
@@ -76,6 +78,7 @@ export async function addStickyComment(req: AuthenticatedRequest, res: Response)
   if (!req.userId || typeof req.params.noteId !== "string") return res.status(400).json({ success: false, message: "Invalid Desk Note." });
   const parsed = commentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a comment up to 300 characters." });
+  try { await requireSafeText(req.userId, parsed.data.text, "Desk Note comment"); await requireRateLimit(req.userId, "comment"); } catch (error) { const message = safetyErrorMessage(error); if (message) return res.status(429).json({ success: false, message }); throw error; }
   const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
   if (disabled.STICKY_NOTE.includes(req.params.noteId)) return res.status(404).json({ success: false, message: "Desk Note unavailable." });
   const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, deletedAt: null, author: { deletedAt: null } }, select: { id: true, authorId: true } });
@@ -97,6 +100,7 @@ export async function replyToStickyComment(req: AuthenticatedRequest, res: Respo
   if (!req.userId || typeof req.params.noteId !== "string" || typeof req.params.commentId !== "string") return res.status(400).json({ success: false, message: "Invalid Desk Note comment." });
   const parsed = replySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a reply up to 240 characters." });
+  try { await requireSafeText(req.userId, parsed.data.text, "Desk Note comment"); await requireRateLimit(req.userId, "comment"); } catch (error) { const message = safetyErrorMessage(error); if (message) return res.status(429).json({ success: false, message }); throw error; }
   const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, authorId: req.userId }, select: { id: true } });
   if (!note) return res.status(403).json({ success: false, message: "Only the Desk Note author can reply." });
   const updated = await prisma.stickyNoteComment.updateMany({ where: { id: req.params.commentId, stickyNoteId: note.id, authorReply: null }, data: { authorReply: parsed.data.text, authorRepliedAt: new Date() } });

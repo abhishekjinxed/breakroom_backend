@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { disabledTargetIds, moderatorRemovalText } from "../services/moderation.service";
+import { requireRateLimit, requireSafeText, safetyErrorMessage } from "../services/content-safety.service";
 
 const ROOM_DURATION_MS = 5 * 60 * 1000;
 const WAITING_ROOM_TTL_MS = 10 * 60 * 1000;
@@ -227,6 +228,7 @@ export async function sendCoffeeBreakMessage(req: AuthenticatedRequest, res: Res
   if (!req.userId || typeof req.params.roomId !== "string") return res.status(400).json({ success: false, message: "Invalid Coffee Break room." });
   const parsed = messageSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a message up to 500 characters." });
+  try { await requireSafeText(req.userId, parsed.data.text, "Coffee Break"); await requireRateLimit(req.userId, "coffee"); } catch (error) { const message = safetyErrorMessage(error); if (message) return res.status(429).json({ success: false, message }); throw error; }
   await tidyRooms();
   const room = await prisma.coffeeBreakRoom.findFirst({
     where: { id: req.params.roomId, status: "ACTIVE", endsAt: { gt: new Date() }, participants: { some: { userId: req.userId, leftAt: null } } },

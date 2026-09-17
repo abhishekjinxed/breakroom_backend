@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { disabledTargetIds, moderatorRemovalText } from "./moderation.service";
+import { requireRateLimit, requireSafeText } from "./content-safety.service";
 
 export async function sendMessage(
   userId: string,
@@ -15,6 +16,8 @@ export async function sendMessage(
   if (messageText.length > 2000) {
     throw new Error("MESSAGE_TOO_LONG");
   }
+  await requireSafeText(userId, messageText, "Private chat");
+  await requireRateLimit(userId, "chat");
 
   // Check that the user belongs to this chat
   const chat = await prisma.chat.findFirst({

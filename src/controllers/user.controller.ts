@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { z } from "zod";
 import { disabledTargetIdsFor } from "../services/moderation.service";
+import { requireSafeText, safetyErrorMessage } from "../services/content-safety.service";
 
 const profileSchema = z.object({
   publicAvatarUrl: z.string().trim().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image.").nullable().optional(),
@@ -132,6 +133,14 @@ export async function updateMyProfile(req: AuthenticatedRequest, res: Response) 
   if (!parsed.success) return res.status(400).json({ success: false, message: "Enter valid optional profile details." });
 
   const value = parsed.data;
+  try {
+    if (value.publicFlair) await requireSafeText(req.userId, value.publicFlair, "Profile");
+    if (value.bio) await requireSafeText(req.userId, value.bio, "Profile");
+  } catch (error) {
+    const message = safetyErrorMessage(error);
+    if (message) return res.status(400).json({ success: false, message });
+    throw error;
+  }
   const user = await prisma.user.update({
     where: { id: req.userId },
     data: {

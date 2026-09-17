@@ -7,6 +7,7 @@ import {
   getChatMessages,
 } from "../services/chat.service";
 import { createAppNotification } from "../services/notification.service";
+import { safetyErrorMessage } from "../services/content-safety.service";
 
 export async function createMessage(
   req: AuthenticatedRequest,
@@ -52,6 +53,8 @@ export async function createMessage(
     console.error("SEND MESSAGE ERROR:", error);
 
     if (error instanceof Error) {
+      const safetyMessage = safetyErrorMessage(error);
+      if (safetyMessage) return res.status(429).json({ success: false, message: safetyMessage });
       if (error.message === "EMPTY_MESSAGE") {
         return res.status(400).json({
           success: false,

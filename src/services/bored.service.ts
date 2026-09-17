@@ -1,10 +1,13 @@
 import { prisma } from "../lib/prisma";
 import { CHARTER_PLANE_COST, PAPER_PLANE_COST, STARTING_PAISA } from "../lib/paisa";
+import { requireRateLimit, requireSafeText } from "./content-safety.service";
 
 const PAPER_PLANE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAPER_PLANE_RECIPIENT_ACTIVITY_MS = 24 * 60 * 60 * 1000;
 
 export async function sendPaperPlane(senderId: string, message: string) {
+  await requireSafeText(senderId, message, "Paper Plane");
+  await requireRateLimit(senderId, "plane");
   const now = new Date();
   const expiresAt = new Date(now.getTime() + PAPER_PLANE_TTL_MS);
 
@@ -65,6 +68,8 @@ export async function sendPaperPlane(senderId: string, message: string) {
 
 export async function sendCharterPaperPlane(senderId: string, recipientId: string, message: string) {
   if (senderId === recipientId) throw new Error("INVALID_CHARTER_RECIPIENT");
+  await requireSafeText(senderId, message, "Paper Plane");
+  await requireRateLimit(senderId, "plane");
   const now = new Date();
   const expiresAt = new Date(now.getTime() + PAPER_PLANE_TTL_MS);
 
