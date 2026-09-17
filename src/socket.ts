@@ -61,6 +61,11 @@ export function notifyMatch(
   io.to(socketId).emit("match_found", data);
 }
 
+/** Count distinct currently connected accounts without exposing any identity data. */
+export function getOnlineUserCount() {
+  return userSockets.size;
+}
+
 export function notifyChatLeft(
   userId: string,
   data: { chatId: string }

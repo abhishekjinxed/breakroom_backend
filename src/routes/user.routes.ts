@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { addMyProfilePhoto, deleteMyProfilePhoto, getMe, getPublicProfile, listMyProfilePhotos, updateMyProfile, updateMyProfilePhoto } from "../controllers/user.controller";
+import { addMyProfilePhoto, deleteMyProfilePhoto, getBreakroomPulse, getMe, getPublicProfile, listMyProfilePhotos, updateMyProfile, updateMyProfilePhoto } from "../controllers/user.controller";
 import { authenticate } from "../middleware/auth.middleware";
 import safetyRoutes from "./safety.routes";
 import { registerPushDevice, unregisterPushDevice } from "../controllers/push.controller";
@@ -7,6 +7,7 @@ import { registerPushDevice, unregisterPushDevice } from "../controllers/push.co
 const router = Router();
 
 router.get("/me", authenticate, getMe);
+router.get("/pulse", authenticate, getBreakroomPulse);
 router.put("/me", authenticate, updateMyProfile);
 router.get("/me/profile-photos", authenticate, listMyProfilePhotos);
 router.post("/me/profile-photos", authenticate, addMyProfilePhoto);

@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { z } from "zod";
 import { disabledTargetIdsFor } from "../services/moderation.service";
 import { requireSafeText, safetyErrorMessage } from "../services/content-safety.service";
+import { getOnlineUserCount } from "../socket";
 
 const profileSchema = z.object({
   publicAvatarUrl: z.string().trim().url().max(1000).refine((url) => new URL(url).hostname === "res.cloudinary.com", "Upload a Cloudinary image.").nullable().optional(),
@@ -125,6 +126,11 @@ export async function getMe(
       message: "Failed to get user",
     });
   }
+}
+
+export async function getBreakroomPulse(req: AuthenticatedRequest, res: Response) {
+  if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
+  return res.json({ success: true, onlineCount: getOnlineUserCount() });
 }
 
 export async function updateMyProfile(req: AuthenticatedRequest, res: Response) {
