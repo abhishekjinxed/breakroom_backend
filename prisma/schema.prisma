@@ -65,6 +65,21 @@ enum AppNotificationType {
   DIRECT_MESSAGE
   CONVERSATION_ENDED
   MODERATION_ACTION
+  CONNECTION_UPDATE
+}
+
+enum FriendshipLevel {
+  STRANGER
+  ACQUAINTANCE
+  FRIEND
+  CLOSE_FRIEND
+}
+
+enum ConversationPromptStatus {
+  OFFERED
+  ACTIVE
+  COMPLETED
+  DECLINED
 }
 
 model User {
@@ -258,10 +273,37 @@ model Chat {
   lastMessageAt DateTime?
   profileSharedByUser1 Boolean @default(false)
   profileSharedByUser2 Boolean @default(false)
+  friendshipLevel FriendshipLevel @default(STRANGER)
+  levelRequest FriendshipLevel?
+  levelRequestedById String?
 
   user1 User @relation("ChatUser1", fields: [user1Id], references: [id])
   user2 User @relation("ChatUser2", fields: [user2Id], references: [id])
   messages Message[]
+  prompts ConversationPrompt[]
+
+  @@index([friendshipLevel])
+}
+
+// Prompts are private to one direct conversation. An answer remains hidden
+// until both members have chosen to answer it.
+model ConversationPrompt {
+  id String @id @default(cuid())
+  chatId String
+  question String @db.VarChar(320)
+  targetLevel FriendshipLevel
+  status ConversationPromptStatus @default(OFFERED)
+  proposerId String
+  user1Accepted Boolean @default(false)
+  user2Accepted Boolean @default(false)
+  user1Answer String? @db.VarChar(600)
+  user2Answer String? @db.VarChar(600)
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, status, createdAt])
 }
 
 model Message {
