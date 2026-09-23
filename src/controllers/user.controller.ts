@@ -185,7 +185,8 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: { not: "DEACTIVATED" } }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
   const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
-  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId, ...(disabled.STICKY_NOTE.length ? { id: { notIn: disabled.STICKY_NOTE } } : {}) }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, text: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  const deskNoteExpiry = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId, deletedAt: null, OR: [{ createdAt: { gte: deskNoteExpiry } }, { pinnedAt: { not: null } }], ...(disabled.STICKY_NOTE.length ? { id: { notIn: disabled.STICKY_NOTE } } : {}) }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], take: 20, select: { id: true, text: true, mood: true, pinnedAt: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
   const profilePhotoCount = await prisma.profilePhoto.count({ where: { ownerId: userId } });
   const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
   if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0 && !user.publicAvatarUrl && !user.publicFlair) return res.status(404).json({ success: false, message: "Member not found." });

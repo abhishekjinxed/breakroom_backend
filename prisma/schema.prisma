@@ -102,6 +102,8 @@ model User {
   receivedPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneRecipient")
   deskStickyNotes DeskStickyNote[]
   stickyApplauds StickyNoteApplaud[]
+  stickyMeToos StickyNoteMeToo[]
+  savedStickyNotes SavedStickyNote[]
   stickyComments StickyNoteComment[]
   profilePhotos ProfilePhoto[] @relation("ProfilePhotoOwner")
   receivedProfilePhotoShares ProfilePhotoShare[] @relation("ProfilePhotoRecipient")
@@ -260,14 +262,43 @@ model DeskStickyNote {
   text      String   @db.VarChar(160)
   createdAt DateTime @default(now())
   deletedAt DateTime?
+  mood String @default("THOUGHT") @db.VarChar(24)
+  pinnedAt DateTime?
 
   author    User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
   applauds  StickyNoteApplaud[]
+  meToos StickyNoteMeToo[]
+  saves SavedStickyNote[]
   comments  StickyNoteComment[]
 
   @@index([createdAt])
   @@index([authorId, createdAt])
   @@index([deletedAt])
+  @@index([authorId, pinnedAt])
+}
+
+model StickyNoteMeToo {
+  userId String
+  stickyNoteId String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stickyNote DeskStickyNote @relation(fields: [stickyNoteId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stickyNoteId])
+  @@index([stickyNoteId])
+}
+
+model SavedStickyNote {
+  userId String
+  stickyNoteId String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stickyNote DeskStickyNote @relation(fields: [stickyNoteId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stickyNoteId])
+  @@index([stickyNoteId])
 }
 
 model StickyNoteApplaud {
