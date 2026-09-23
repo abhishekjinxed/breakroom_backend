@@ -31,13 +31,6 @@ enum ReportTargetType {
   COFFEE_MESSAGE
 }
 
-enum CoffeeBreakRoomStatus {
-  WAITING
-  ACTIVE
-  ENDED
-  CANCELLED
-}
-
 enum TicTacToeGameStatus {
   WAITING
   ACTIVE
@@ -107,9 +100,6 @@ model User {
   blocksReceived UserBlock[] @relation("Blocked")
   sentPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneSender")
   receivedPaperPlanes PaperPlaneInvite[] @relation("PaperPlaneRecipient")
-  coffeeQueue CoffeeQueue?
-  coffeeBreakParticipants CoffeeBreakParticipant[]
-  coffeeBreakMessages CoffeeBreakMessage[]
   deskStickyNotes DeskStickyNote[]
   stickyApplauds StickyNoteApplaud[]
   stickyComments StickyNoteComment[]
@@ -144,60 +134,6 @@ model TicTacToeGame {
   @@index([status, createdAt])
   @@index([playerXId, status])
   @@index([playerOId, status])
-}
-
-model CoffeeQueue {
-  userId String @id
-  topic String @db.VarChar(60)
-  createdAt DateTime @default(now())
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@index([topic, createdAt])
-}
-
-// A Coffee Break Room is deliberately short-lived.  Messages are removed as
-// soon as the room ends, while the participant list stays available briefly
-// so members can choose whether to send a Charter Plane afterwards.
-model CoffeeBreakRoom {
-  id          String                @id @default(cuid())
-  status      CoffeeBreakRoomStatus @default(WAITING)
-  prompt      String                @db.VarChar(240)
-  createdAt   DateTime              @default(now())
-  startedAt   DateTime?
-  endsAt      DateTime?
-  endedAt     DateTime?
-
-  participants CoffeeBreakParticipant[]
-  messages     CoffeeBreakMessage[]
-
-  @@index([status, createdAt])
-  @@index([status, endsAt])
-}
-
-model CoffeeBreakParticipant {
-  roomId   String
-  userId   String
-  joinedAt DateTime @default(now())
-  leftAt   DateTime?
-
-  room CoffeeBreakRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@id([roomId, userId])
-  @@index([userId, leftAt])
-}
-
-model CoffeeBreakMessage {
-  id        String   @id @default(cuid())
-  roomId    String
-  senderId  String
-  text      String   @db.VarChar(500)
-  isSystem  Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  room   CoffeeBreakRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  sender User            @relation(fields: [senderId], references: [id], onDelete: Cascade)
-
-  @@index([roomId, createdAt])
 }
 
 model PaperPlaneInvite {

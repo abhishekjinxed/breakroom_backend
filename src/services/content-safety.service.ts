@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 
-type Surface = "Private chat" | "Paper Plane" | "Desk Note" | "Desk Note comment" | "Coffee Break" | "Profile";
+type Surface = "Private chat" | "Paper Plane" | "Desk Note" | "Desk Note comment" | "Profile";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -38,19 +38,17 @@ export async function requireSafeText(userId: string, text: string, surface: Sur
   throw new Error("UNSAFE_CONTENT");
 }
 
-export async function requireRateLimit(userId: string, kind: "plane" | "note" | "comment" | "chat" | "coffee") {
+export async function requireRateLimit(userId: string, kind: "plane" | "note" | "comment" | "chat") {
   const now = new Date();
   const since = new Date(now.getTime() - HOUR);
-  const limits = { plane: 3, note: 5, comment: 20, chat: 60, coffee: 40 } as const;
+  const limits = { plane: 3, note: 5, comment: 20, chat: 60 } as const;
   const count = kind === "plane"
     ? await prisma.paperPlaneInvite.count({ where: { senderId: userId, createdAt: { gte: since } } })
     : kind === "note"
       ? await prisma.deskStickyNote.count({ where: { authorId: userId, createdAt: { gte: new Date(now.getTime() - 24 * HOUR) } } })
       : kind === "comment"
         ? await prisma.stickyNoteComment.count({ where: { authorId: userId, createdAt: { gte: since } } })
-        : kind === "chat"
-          ? await prisma.message.count({ where: { senderId: userId, createdAt: { gte: since } } })
-          : await prisma.coffeeBreakMessage.count({ where: { senderId: userId, isSystem: false, createdAt: { gte: since } } });
+        : await prisma.message.count({ where: { senderId: userId, createdAt: { gte: since } } });
   if (count >= limits[kind]) throw new Error("RATE_LIMITED");
 }
 
