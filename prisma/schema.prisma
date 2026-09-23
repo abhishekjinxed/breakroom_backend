@@ -113,6 +113,9 @@ model User {
   ticTacToeGamesAsX TicTacToeGame[] @relation("TicTacToePlayerX")
   ticTacToeGamesAsO TicTacToeGame[] @relation("TicTacToePlayerO")
   ticTacToeWins TicTacToeGame[] @relation("TicTacToeWinner")
+  connectFourGamesAsRed ConnectFourGame[] @relation("ConnectFourRed")
+  connectFourGamesAsYellow ConnectFourGame[] @relation("ConnectFourYellow")
+  connectFourWins ConnectFourGame[] @relation("ConnectFourWinner")
 }
 
 // A small, anonymous open match. It is intentionally not connected to a
@@ -137,6 +140,28 @@ model TicTacToeGame {
   @@index([playerXId, status])
   @@index([playerOId, status])
 }
+
+model ConnectFourGame {
+  id            String               @id @default(cuid())
+  playerRedId   String
+  playerYellowId String?
+  board         String               @db.VarChar(42) @default("..........................................")
+  turnUserId    String?
+  winnerUserId  String?
+  status        TicTacToeGameStatus  @default(WAITING)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  finishedAt    DateTime?
+
+  playerRed    User  @relation("ConnectFourRed", fields: [playerRedId], references: [id], onDelete: Cascade)
+  playerYellow User? @relation("ConnectFourYellow", fields: [playerYellowId], references: [id], onDelete: SetNull)
+  winner       User? @relation("ConnectFourWinner", fields: [winnerUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([playerRedId, status])
+  @@index([playerYellowId, status])
+}
+
 
 model PaperPlaneInvite {
   id          String           @id @default(cuid())
