@@ -3,6 +3,7 @@ import { Server } from "socket.io";
 let io: Server | null = null;
 
 const userSockets = new Map<string, string>();
+const foregroundSockets = new Map<string, Set<string>>();
 
 export function initializeSocket(server: Server) {
   io = server;
@@ -28,6 +29,26 @@ export function removeUserSocket(
   if (currentSocket === socketId) {
     userSockets.delete(userId);
   }
+  const sockets = foregroundSockets.get(userId);
+  sockets?.delete(socketId);
+  if (!sockets?.size) foregroundSockets.delete(userId);
+}
+
+/** A foreground client receives live in-app updates, so it does not need an OS push. */
+export function setUserSocketForeground(userId: string, socketId: string, foreground: boolean) {
+  if (!foreground) {
+    const sockets = foregroundSockets.get(userId);
+    sockets?.delete(socketId);
+    if (!sockets?.size) foregroundSockets.delete(userId);
+    return;
+  }
+  const sockets = foregroundSockets.get(userId) ?? new Set<string>();
+  sockets.add(socketId);
+  foregroundSockets.set(userId, sockets);
+}
+
+export function isUserActiveInApp(userId: string) {
+  return (foregroundSockets.get(userId)?.size ?? 0) > 0;
 }
 
 export function notifyMatch(
@@ -117,4 +138,5 @@ export function disconnectUserSockets(userId: string, reason = "Your account is 
     }
   }
   userSockets.delete(userId);
+  foregroundSockets.delete(userId);
 }

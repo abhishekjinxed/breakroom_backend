@@ -26,6 +26,7 @@ import {
   initializeSocket,
   registerUserSocket,
   removeUserSocket,
+  setUserSocketForeground,
 } from "./socket";
 
 const app = express();
@@ -102,6 +103,10 @@ io.on("connection", (socket) => {
   registerUserSocket(userId, socket.id);
   prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => undefined);
   console.log(`🔌 User connected: ${userId}`);
+
+  socket.on("app:presence", (data: { foreground?: boolean }) => {
+    setUserSocketForeground(userId, socket.id, data?.foreground === true);
+  });
 
   socket.on("chat:join", async (chatId: string) => {
     try {

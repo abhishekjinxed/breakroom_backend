@@ -1,6 +1,6 @@
 import { AppNotificationType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { notifyAppNotification } from "../socket";
+import { isUserActiveInApp, notifyAppNotification } from "../socket";
 
 type CreateNotificationInput = {
   userId: string;
@@ -36,6 +36,10 @@ export async function createAppNotification(input: CreateNotificationInput) {
     link: notification.link,
     createdAt: notification.createdAt,
   });
-  void sendAndroidPush(input.userId, notification.title, notification.detail, notification.link ?? undefined);
+  // The live app has already received the socket event and badge update.
+  // Avoid duplicating that with a noisy Android notification.
+  if (!isUserActiveInApp(input.userId)) {
+    void sendAndroidPush(input.userId, notification.title, notification.detail, input.link ?? undefined);
+  }
   return notification;
 }
