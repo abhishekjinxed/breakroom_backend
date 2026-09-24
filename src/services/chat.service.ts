@@ -73,7 +73,6 @@ export async function getChatMessages(
     throw new Error("CHAT_NOT_FOUND");
   }
 
-  const disabledMessages = await disabledTargetIds("MESSAGE");
   const messages = await prisma.message.findMany({
     where: { chatId },
     orderBy: {
@@ -86,6 +85,7 @@ export async function getChatMessages(
       createdAt: true,
     },
   });
+  const disabledMessages = new Set(await disabledTargetIds("MESSAGE", messages.map((message) => message.id)));
 
-  return messages.map((message) => disabledMessages.includes(message.id) ? { ...message, text: moderatorRemovalText(), isUnavailable: true } : { ...message, isUnavailable: false });
+  return messages.map((message) => disabledMessages.has(message.id) ? { ...message, text: moderatorRemovalText(), isUnavailable: true } : { ...message, isUnavailable: false });
 }

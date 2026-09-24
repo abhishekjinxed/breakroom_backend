@@ -124,7 +124,7 @@ export async function getPendingPaperPlanes(recipientId: string) {
 
   // A desk can hold several unopened planes. Keep them all available until
   // their 24-hour expiry rather than only returning the latest arrival.
-  return prisma.paperPlaneInvite.findMany({
+  const invites = await prisma.paperPlaneInvite.findMany({
     where: { recipientId, status: "PENDING", expiresAt: { gt: now } },
     orderBy: { createdAt: "desc" },
     take: 12,
@@ -132,6 +132,9 @@ export async function getPendingPaperPlanes(recipientId: string) {
       sender: { select: { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } },
     },
   });
+  if (!invites.length) return invites;
+  const disabled = new Set((await prisma.moderationAction.findMany({ where: { targetType: "PAPER_PLANE", targetId: { in: invites.map((invite) => invite.id) } }, select: { targetId: true } })).map((action) => action.targetId));
+  return invites.filter((invite) => !disabled.has(invite.id));
 }
 
 export async function respondToPaperPlane(recipientId: string, inviteId: string, accept: boolean) {
@@ -147,6 +150,8 @@ export async function respondToPaperPlane(recipientId: string, inviteId: string,
     });
 
     if (!invite || invite.recipientId !== recipientId) throw new Error("PAPER_PLANE_NOT_FOUND");
+    const disabled = await tx.moderationAction.findUnique({ where: { targetType_targetId: { targetType: "PAPER_PLANE", targetId: invite.id } }, select: { id: true } });
+    if (disabled) throw new Error("PAPER_PLANE_UNAVAILABLE");
     if (invite.status !== "PENDING" || invite.expiresAt <= now) {
       if (invite.status === "PENDING") {
         await tx.paperPlaneInvite.update({ where: { id: invite.id }, data: { status: "EXPIRED", respondedAt: now } });

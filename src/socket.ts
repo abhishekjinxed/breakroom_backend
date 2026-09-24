@@ -51,6 +51,17 @@ export function isUserActiveInApp(userId: string) {
   return (foregroundSockets.get(userId)?.size ?? 0) > 0;
 }
 
+export function isUserViewingChat(userId: string, chatId: string) {
+  if (!io) return false;
+  const members = io.sockets.adapter.rooms.get(`chat:${chatId}`);
+  if (!members) return false;
+  for (const socketId of members) {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket?.data.userId === userId && foregroundSockets.get(userId)?.has(socketId)) return true;
+  }
+  return false;
+}
+
 export function notifyMatch(
   userId: string,
   data: {

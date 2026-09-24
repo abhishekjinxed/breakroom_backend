@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createAppNotification } from "../services/notification.service";
 import { disabledTargetIds, moderatorRemovalText } from "../services/moderation.service";
 import { FriendshipLevel, ConversationPromptStatus } from "@prisma/client";
+import { requireRateLimit, requireSafeText, safetyErrorMessage } from "../services/content-safety.service";
 
 const member = { id: true, anonymousUsername: true, publicAvatarUrl: true, publicFlair: true } as const;
 
@@ -54,7 +55,9 @@ function promptFor(level: Exclude<FriendshipLevel, "STRANGER">, seed: string) {
   return deck[index];
 }
 
-function serializePrompt(prompt: any, chat: any, userId: string) {
+async function serializePrompt(prompt: any, chat: any, userId: string) {
+  const removed = await prisma.moderationAction.findUnique({ where: { targetType_targetId: { targetType: "PROMPT_ANSWER", targetId: prompt.id } }, select: { id: true } });
+  if (removed) return { id: prompt.id, question: moderatorRemovalText(), targetLevel: prompt.targetLevel, targetLabel: levelLabel[prompt.targetLevel as FriendshipLevel], status: prompt.status, waitingForConsent: false, myAnswer: null, memberAnswer: null, myAnswerUnavailable: true, memberAnswerUnavailable: true, hasAnswered: false, memberHasAnswered: false };
   const ownAnswer = chat.user1Id === userId ? prompt.user1Answer : prompt.user2Answer;
   const memberAnswer = chat.user1Id === userId ? prompt.user2Answer : prompt.user1Answer;
   const bothAnswered = !!prompt.user1Answer && !!prompt.user2Answer;
@@ -91,7 +94,7 @@ async function connectionFor(chat: any, userId: string) {
     requestedByMe: chat.levelRequestedById === userId,
     canAcceptLevel: !!chat.levelRequest && chat.levelRequestedById !== userId,
     canOfferPrompt: !!next && !requestPending && !activePrompt && messageCount >= Math.max(6, requiredMessages[next] - 2),
-    prompt: latestPrompt ? serializePrompt(latestPrompt, chat, userId) : null,
+    prompt: latestPrompt ? await serializePrompt(latestPrompt, chat, userId) : null,
   };
 }
 
@@ -136,7 +139,8 @@ export async function listInbox(req: AuthenticatedRequest, res: Response) {
     const currentTime = current ? (current.lastMessageAt ?? current.createdAt).getTime() : -1;
     if (!current || chatTime > currentTime) newestByMember.set(memberId, chat);
   }
-  const disabledMessages = new Set(await disabledTargetIds("MESSAGE"));
+  const latestMessages = Array.from(newestByMember.values()).flatMap((chat) => chat.messages);
+  const disabledMessages = new Set(await disabledTargetIds("MESSAGE", latestMessages.map((message) => message.id)));
   const conversations = Array.from(newestByMember.values()).sort((a, b) => (b.lastMessageAt ?? b.createdAt).getTime() - (a.lastMessageAt ?? a.createdAt).getTime()).map((chat) => ({ id: chat.id, member: chat.user1Id === userId ? chat.user2 : chat.user1, latestMessage: chat.messages[0] ? { text: disabledMessages.has(chat.messages[0].id) ? moderatorRemovalText() : chat.messages[0].text, createdAt: chat.messages[0].createdAt } : null, unreadCount: chat._count.messages, updatedAt: chat.lastMessageAt ?? chat.createdAt }));
   return res.json({ success: true, conversations });
 }
@@ -147,9 +151,8 @@ export async function readConversation(req: AuthenticatedRequest, res: Response)
   if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
   const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
   await prisma.message.updateMany({ where: { chatId, senderId: { not: userId }, readAt: null }, data: { readAt: new Date() } });
-  const disabledMessages = await disabledTargetIds("MESSAGE");
   const messages = await prisma.message.findMany({ where: { chatId }, orderBy: { createdAt: "asc" }, select: { id: true, chatId: true, senderId: true, text: true, createdAt: true, readAt: true } });
-  const disabledMessageSet = new Set(disabledMessages);
+  const disabledMessageSet = new Set(await disabledTargetIds("MESSAGE", messages.map((message) => message.id)));
   const isSharingMyProfile = chat.user1Id === userId ? chat.profileSharedByUser1 : chat.profileSharedByUser2;
   const memberSharedAProfile = chat.user1Id === userId ? chat.profileSharedByUser2 : chat.profileSharedByUser1;
   const hasSharedMemberPhoto = await prisma.profilePhotoShare.findFirst({ where: { recipientId: userId, photo: { ownerId: otherUserId } }, select: { photoId: true } });
@@ -203,7 +206,7 @@ export async function offerConversationPrompt(req: AuthenticatedRequest, res: Re
   const otherUserId = chat.user1Id === userId ? chat.user2Id : chat.user1Id;
   await createAppNotification({ userId: otherUserId, type: "CONNECTION_UPDATE", title: "A shared question is waiting", detail: "Your chat partner opened an optional get-to-know-you question.", link: `/chat/${chat.id}` });
   notifyInboxUpdated(otherUserId, { chatId: chat.id });
-  return res.status(201).json({ success: true, prompt: serializePrompt(created, chat, userId) });
+  return res.status(201).json({ success: true, prompt: await serializePrompt(created, chat, userId) });
 }
 
 const promptActionSchema = z.object({ action: z.enum(["ACCEPT", "DECLINE", "ANSWER"]), answer: z.string().trim().min(1).max(600).optional() });
@@ -218,6 +221,18 @@ export async function respondToConversationPrompt(req: AuthenticatedRequest, res
   if (!chat) return res.status(404).json({ success: false, message: "Conversation not found." });
   const prompt = await prisma.conversationPrompt.findFirst({ where: { id: promptId, chatId } });
   if (!prompt || !["OFFERED", "ACTIVE"].includes(prompt.status)) return res.status(404).json({ success: false, message: "That shared question is no longer available." });
+  if (parsed.data.action === "ANSWER") {
+    try {
+      await requireSafeText(userId, parsed.data.answer!, "Friendship question answer");
+      await requireRateLimit(userId, "chat");
+    } catch (error) {
+      const message = safetyErrorMessage(error);
+      if (message) return res.status(error instanceof Error && error.message === "RATE_LIMITED" ? 429 : 400).json({ success: false, message });
+      throw error;
+    }
+    const removed = await prisma.moderationAction.findUnique({ where: { targetType_targetId: { targetType: "PROMPT_ANSWER", targetId: prompt.id } }, select: { id: true } });
+    if (removed) return res.status(404).json({ success: false, message: "This shared question is unavailable." });
+  }
   const isUser1 = chat.user1Id === userId;
   let data: any = {};
   if (parsed.data.action === "DECLINE") data = { status: "DECLINED" as ConversationPromptStatus };
@@ -235,7 +250,7 @@ export async function respondToConversationPrompt(req: AuthenticatedRequest, res
   const updated = await prisma.conversationPrompt.update({ where: { id: prompt.id }, data });
   const otherUserId = isUser1 ? chat.user2Id : chat.user1Id;
   notifyInboxUpdated(otherUserId, { chatId: chat.id });
-  return res.json({ success: true, prompt: serializePrompt(updated, chat, userId) });
+  return res.json({ success: true, prompt: await serializePrompt(updated, chat, userId) });
 }
 
 const profileSharingSchema = z.object({ share: z.boolean() });

@@ -5,9 +5,10 @@ import { AuthenticatedRequest } from "../middleware/auth.middleware";
 import { disconnectUserSockets, notifyChatLeft } from "../socket";
 import { Prisma, ReportTargetType } from "@prisma/client";
 import { createAppNotification } from "../services/notification.service";
+import { requireRateLimit } from "../services/content-safety.service";
 
 const reportSchema = z.object({
-  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT"]),
+  targetType: z.enum(["PULSE", "NOTE", "MESSAGE", "USER", "STICKY_NOTE", "STICKY_COMMENT", "PROFILE_PHOTO", "PAPER_PLANE", "PROMPT_ANSWER"]),
   targetId: z.string().min(1),
   reason: z.string().trim().min(3).max(500),
   details: z.string().trim().max(1000).optional(),
@@ -28,14 +29,30 @@ const targetLabels: Record<ReportTargetType, string> = {
   USER: "member profile",
   STICKY_NOTE: "Desk Note",
   STICKY_COMMENT: "Desk Note comment",
+  PROFILE_PHOTO: "profile photo",
+  PAPER_PLANE: "Paper Plane",
+  PROMPT_ANSWER: "friendship question answer",
   COFFEE_MESSAGE: "Retired Coffee Break message",
 };
 
-async function findTargetAuthorId(tx: Prisma.TransactionClient, targetType: ReportTargetType, targetId: string) {
+async function findTargetAuthorId(tx: Prisma.TransactionClient, targetType: ReportTargetType, targetId: string, reporterId?: string) {
   if (targetType === "PULSE" || targetType === "NOTE") return undefined;
-  if (targetType === "MESSAGE") return (await tx.message.findUnique({ where: { id: targetId }, select: { senderId: true } }))?.senderId;
+  if (targetType === "MESSAGE") {
+    if (!reporterId) return undefined;
+    return (await tx.message.findFirst({ where: { id: targetId, chat: { OR: [{ user1Id: reporterId }, { user2Id: reporterId }] } }, select: { senderId: true } }))?.senderId;
+  }
   if (targetType === "STICKY_NOTE") return (await tx.deskStickyNote.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
   if (targetType === "STICKY_COMMENT") return (await tx.stickyNoteComment.findUnique({ where: { id: targetId }, select: { authorId: true } }))?.authorId;
+  if (targetType === "PROFILE_PHOTO") return (await tx.profilePhoto.findUnique({ where: { id: targetId }, select: { ownerId: true } }))?.ownerId;
+  if (targetType === "PAPER_PLANE") return (await tx.paperPlaneInvite.findFirst({ where: { id: targetId, recipientId: reporterId }, select: { senderId: true } }))?.senderId;
+  if (targetType === "PROMPT_ANSWER") {
+    if (!reporterId) return undefined;
+    const prompt = await tx.conversationPrompt.findFirst({ where: { id: targetId, chat: { OR: [{ user1Id: reporterId }, { user2Id: reporterId }] } }, include: { chat: { select: { user1Id: true, user2Id: true } } } });
+    if (!prompt) return undefined;
+    const reporterIsFirst = prompt.chat.user1Id === reporterId;
+    const answerByOther = reporterIsFirst ? prompt.user2Answer : prompt.user1Answer;
+    return answerByOther ? (reporterIsFirst ? prompt.chat.user2Id : prompt.chat.user1Id) : undefined;
+  }
   return (await tx.user.findUnique({ where: { id: targetId }, select: { id: true } }))?.id;
 }
 
@@ -43,9 +60,13 @@ export async function reportContent(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const parsed = reportSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Provide a report reason." });
-  if (parsed.data.targetType === "MESSAGE") {
-    const message = await prisma.message.findFirst({ where: { id: parsed.data.targetId, chat: { OR: [{ user1Id: req.userId }, { user2Id: req.userId }] } }, select: { id: true } });
-    if (!message) return res.status(404).json({ success: false, message: "That chat message is unavailable." });
+  try { await requireRateLimit(req.userId, "report"); }
+  catch { return res.status(429).json({ success: false, message: "You have reached the report limit for now." }); }
+  const authorId = await findTargetAuthorId(prisma, parsed.data.targetType, parsed.data.targetId, req.userId);
+  if (!authorId || authorId === req.userId) return res.status(404).json({ success: false, message: "That content is unavailable to report." });
+  if (parsed.data.targetType === "PROFILE_PHOTO") {
+    const visible = await prisma.profilePhoto.findFirst({ where: { id: parsed.data.targetId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true } });
+    if (!visible) return res.status(404).json({ success: false, message: "That photo is unavailable to report." });
   }
   const report = await prisma.contentReport.create({ data: { reporterId: req.userId, ...parsed.data } });
   return res.status(201).json({ success: true, report });
@@ -146,6 +167,18 @@ async function getTargetPreview(targetType: string, targetId: string) {
     const target = await prisma.stickyNoteComment.findUnique({ where: { id: targetId }, select: { text: true, author: { select: { anonymousUsername: true } } } });
     return target ? { label: "Desk Note comment", text: target.text, author: target.author.anonymousUsername } : { label: "Desk Note comment", text: "This content is no longer available." };
   }
+  if (targetType === "PROFILE_PHOTO") {
+    const photo = await prisma.profilePhoto.findUnique({ where: { id: targetId }, select: { url: true, owner: { select: { anonymousUsername: true } } } });
+    return photo ? { label: "Profile photo", text: "Reported profile photo", imageUrl: photo.url, author: photo.owner.anonymousUsername } : { label: "Profile photo", text: "This content is no longer available." };
+  }
+  if (targetType === "PAPER_PLANE") {
+    const plane = await prisma.paperPlaneInvite.findUnique({ where: { id: targetId }, select: { message: true, sender: { select: { anonymousUsername: true } } } });
+    return plane ? { label: "Paper Plane", text: plane.message, author: plane.sender.anonymousUsername } : { label: "Paper Plane", text: "This content is no longer available." };
+  }
+  if (targetType === "PROMPT_ANSWER") {
+    const prompt = await prisma.conversationPrompt.findUnique({ where: { id: targetId }, select: { question: true, user1Answer: true, user2Answer: true, chat: { select: { user1: { select: { anonymousUsername: true } }, user2: { select: { anonymousUsername: true } } } } } });
+    return prompt ? { label: "Friendship question answer", text: `${prompt.question}\n\n${prompt.chat.user1.anonymousUsername}: ${prompt.user1Answer ?? "(no answer)"}\n${prompt.chat.user2.anonymousUsername}: ${prompt.user2Answer ?? "(no answer)"}` } : { label: "Friendship question answer", text: "This content is no longer available." };
+  }
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { anonymousUsername: true, bio: true, deletedAt: true } });
   return target
     ? { label: "Member profile", text: target.deletedAt ? "This account is deactivated." : target.bio || "No profile bio provided.", author: target.anonymousUsername }
@@ -173,25 +206,39 @@ export async function resolveReport(req: AuthenticatedRequest, res: Response) {
   const result = await prisma.$transaction(async (tx) => {
     const report = await tx.contentReport.findUnique({ where: { id: reportId } });
     if (!report) return null;
-    const authorId = await findTargetAuthorId(tx, report.targetType, report.targetId);
+    const authorId = await findTargetAuthorId(tx, report.targetType, report.targetId, report.reporterId);
     if (!authorId) return { missing: true };
     const existing = await tx.moderationAction.findUnique({ where: { targetType_targetId: { targetType: report.targetType, targetId: report.targetId } } });
+    let chatsToNotify: Array<{ id: string; user1Id: string; user2Id: string }> = [];
     if (!existing) {
       await tx.moderationAction.create({ data: { reportId: report.id, targetType: report.targetType, targetId: report.targetId, authorId, reason: report.reason } });
-      if (report.targetType === "USER") await tx.user.update({ where: { id: authorId }, data: { status: "DEACTIVATED", lastActiveAt: new Date() } });
+      if (report.targetType === "USER") {
+        const now = new Date();
+        await tx.user.update({ where: { id: authorId }, data: { status: "DEACTIVATED", lastActiveAt: now } });
+        chatsToNotify = await tx.chat.findMany({ where: { isDirect: true, endedAt: null, OR: [{ user1Id: authorId }, { user2Id: authorId }] }, select: { id: true, user1Id: true, user2Id: true } });
+        await tx.chat.updateMany({ where: { id: { in: chatsToNotify.map((chat) => chat.id) } }, data: { endedAt: now } });
+        await tx.paperPlaneInvite.updateMany({ where: { status: "PENDING", OR: [{ senderId: authorId }, { recipientId: authorId }] }, data: { status: "CANCELLED", respondedAt: now } });
+      }
+      if (report.targetType === "PROFILE_PHOTO") await tx.profilePhoto.updateMany({ where: { id: report.targetId }, data: { visibility: "PRIVATE" } });
+      if (report.targetType === "PAPER_PLANE") await tx.paperPlaneInvite.updateMany({ where: { id: report.targetId, status: "PENDING" }, data: { status: "CANCELLED", respondedAt: new Date() } });
     }
     const updated = await tx.contentReport.update({ where: { id: report.id }, data: { status: "ACTIONED", reviewedAt: new Date() } });
-    return { report: updated, authorId, targetType: report.targetType, newlyDisabled: !existing };
+    return { report: updated, authorId, targetType: report.targetType, newlyDisabled: !existing, chatsToNotify };
   });
   if (!result || "missing" in result) return res.status(404).json({ success: false, message: "Reported content is no longer available." });
   if (result.newlyDisabled) {
+    const isAccountBlock = result.targetType === "USER";
     await createAppNotification({
       userId: result.authorId,
       type: "MODERATION_ACTION",
-      title: "Content disabled by Breakroom",
-      detail: `Your ${targetLabels[result.targetType]} was disabled by an administrator for not following Breakroom’s Terms of Use.`,
-      link: "/notifications",
+      title: isAccountBlock ? "Account disabled by Breakroom" : "Content disabled by Breakroom",
+      detail: isAccountBlock ? "Your account was disabled by an administrator for not following Breakroom’s Terms of Use." : `Your ${targetLabels[result.targetType]} was disabled by an administrator for not following Breakroom’s Terms of Use.`,
+      link: isAccountBlock ? "/terms" : "/notifications",
     });
+    if (result.targetType === "USER") {
+      for (const chat of result.chatsToNotify) notifyChatLeft(chat.user1Id === result.authorId ? chat.user2Id : chat.user1Id, { chatId: chat.id });
+      disconnectUserSockets(result.authorId, "Your account has been disabled by an administrator for not following Breakroom’s Terms of Use.");
+    }
   }
   return res.json({ success: true, report: result.report, disabled: true });
 }

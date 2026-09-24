@@ -45,16 +45,22 @@ async function blockedIds(userId: string) {
 export async function listStickyNotes(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
   const hiddenAuthors = await blockedIds(req.userId);
-  const disabled = await disabledTargetIdsFor(["STICKY_NOTE", "STICKY_COMMENT"]);
   const expiry = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const notes = await prisma.deskStickyNote.findMany({ where: { deletedAt: null, author: { deletedAt: null, status: { not: "DEACTIVATED" } }, OR: [{ createdAt: { gte: expiry } }, { pinnedAt: { not: null } }], ...(hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}) }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], take: 50, include: stickyInclude(req.userId) });
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE", "STICKY_COMMENT"], {
+    STICKY_NOTE: notes.map((note) => note.id),
+    STICKY_COMMENT: notes.flatMap((note) => note.comments.map((comment) => comment.id)),
+  });
   return res.json({ success: true, notes: notes.map((note) => payload(note, disabled)) });
 }
 
 export async function listMyStickyNotes(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  const disabled = await disabledTargetIdsFor(["STICKY_NOTE", "STICKY_COMMENT"]);
   const notes = await prisma.deskStickyNote.findMany({ where: { authorId: req.userId, deletedAt: null }, orderBy: { createdAt: "desc" }, take: 100, include: stickyInclude(req.userId) });
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE", "STICKY_COMMENT"], {
+    STICKY_NOTE: notes.map((note) => note.id),
+    STICKY_COMMENT: notes.flatMap((note) => note.comments.map((comment) => comment.id)),
+  });
   return res.json({ success: true, notes: notes.map((note) => payload(note, disabled)) });
 }
 
@@ -95,7 +101,7 @@ export async function pinStickyNote(req: AuthenticatedRequest, res: Response) {
 
 export async function toggleStickyApplaud(req: AuthenticatedRequest, res: Response) {
   if (!req.userId || typeof req.params.noteId !== "string") return res.status(400).json({ success: false, message: "Invalid Desk Note." });
-  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"], { STICKY_NOTE: [req.params.noteId] });
   if (disabled.STICKY_NOTE.includes(req.params.noteId)) return res.status(404).json({ success: false, message: "Desk Note unavailable." });
   const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, deletedAt: null, author: { deletedAt: null } }, select: { id: true } });
   if (!note) return res.status(404).json({ success: false, message: "Desk Note not found." });
@@ -110,7 +116,7 @@ export async function addStickyComment(req: AuthenticatedRequest, res: Response)
   const parsed = commentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Write a comment up to 300 characters." });
   try { await requireSafeText(req.userId, parsed.data.text, "Desk Note comment"); await requireRateLimit(req.userId, "comment"); } catch (error) { const message = safetyErrorMessage(error); if (message) return res.status(429).json({ success: false, message }); throw error; }
-  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"], { STICKY_NOTE: [req.params.noteId] });
   if (disabled.STICKY_NOTE.includes(req.params.noteId)) return res.status(404).json({ success: false, message: "Desk Note unavailable." });
   const note = await prisma.deskStickyNote.findFirst({ where: { id: req.params.noteId, deletedAt: null, author: { deletedAt: null } }, select: { id: true, authorId: true } });
   if (!note) return res.status(404).json({ success: false, message: "Desk Note not found." });

@@ -1,6 +1,6 @@
 import { AppNotificationType } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { isUserActiveInApp, notifyAppNotification } from "../socket";
+import { isUserActiveInApp, isUserViewingChat, notifyAppNotification } from "../socket";
 
 type CreateNotificationInput = {
   userId: string;
@@ -8,6 +8,7 @@ type CreateNotificationInput = {
   title: string;
   detail: string;
   link?: string;
+  suppressIfViewingChatId?: string;
 };
 
 async function sendAndroidPush(userId: string, title: string, detail: string, link?: string) {
@@ -28,7 +29,9 @@ async function sendAndroidPush(userId: string, title: string, detail: string, li
 }
 
 export async function createAppNotification(input: CreateNotificationInput) {
-  const notification = await prisma.appNotification.create({ data: input });
+  if (input.suppressIfViewingChatId && isUserViewingChat(input.userId, input.suppressIfViewingChatId)) return null;
+  const { suppressIfViewingChatId: _suppressIfViewingChatId, ...data } = input;
+  const notification = await prisma.appNotification.create({ data });
   notifyAppNotification(input.userId, {
     id: notification.id,
     title: notification.title,

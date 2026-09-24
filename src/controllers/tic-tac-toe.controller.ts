@@ -19,14 +19,14 @@ function winnerForBoard(board: string): "X" | "O" | null {
   return null;
 }
 
-async function tidyGames() {
+async function tidyGames(userId: string) {
   const now = new Date();
   await prisma.ticTacToeGame.updateMany({
-    where: { status: "WAITING", createdAt: { lte: new Date(now.getTime() - WAITING_TTL_MS) } },
+    where: { status: "WAITING", createdAt: { lte: new Date(now.getTime() - WAITING_TTL_MS) }, OR: [{ playerXId: userId }, { playerOId: userId }] },
     data: { status: "CANCELLED", finishedAt: now },
   });
   await prisma.ticTacToeGame.updateMany({
-    where: { status: "ACTIVE", updatedAt: { lte: new Date(now.getTime() - ACTIVE_TTL_MS) } },
+    where: { status: "ACTIVE", updatedAt: { lte: new Date(now.getTime() - ACTIVE_TTL_MS) }, OR: [{ playerXId: userId }, { playerOId: userId }] },
     data: { status: "CANCELLED", finishedAt: now },
   });
 }
@@ -66,7 +66,7 @@ async function findCurrentGame(userId: string) {
 
 export async function currentTicTacToe(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  await tidyGames();
+  await tidyGames(req.userId);
   // Keep the completed board visible to both players briefly. Without this,
   // the opponent who made the last move sees the result while the other
   // player’s polling request would only receive an empty lobby.
@@ -84,14 +84,14 @@ export async function currentTicTacToe(req: AuthenticatedRequest, res: Response)
 
 export async function joinTicTacToe(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  await tidyGames();
+  await tidyGames(req.userId);
   const existing = await findCurrentGame(req.userId);
   if (existing) return res.json({ success: true, game: gamePayload(existing, req.userId) });
 
   // A conditional update makes joining a waiting match safe when two people
   // press the button at almost the same time.
   const candidates = await prisma.ticTacToeGame.findMany({
-    where: { status: "WAITING", playerOId: null, playerXId: { not: req.userId } },
+    where: { status: "WAITING", createdAt: { gt: new Date(Date.now() - WAITING_TTL_MS) }, playerOId: null, playerXId: { not: req.userId }, playerX: { deletedAt: null, status: { not: "DEACTIVATED" } } },
     orderBy: { createdAt: "asc" },
     select: { id: true, playerXId: true },
     take: 12,
@@ -116,7 +116,7 @@ export async function moveTicTacToe(req: AuthenticatedRequest, res: Response) {
   if (!req.userId || typeof req.params.gameId !== "string") return res.status(400).json({ success: false, message: "Invalid game." });
   const parsed = moveSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Choose a valid square." });
-  await tidyGames();
+  await tidyGames(req.userId);
   const game = await prisma.ticTacToeGame.findFirst({
     where: { id: req.params.gameId, status: "ACTIVE", OR: [{ playerXId: req.userId }, { playerOId: req.userId }] },
   });

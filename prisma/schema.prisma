@@ -28,6 +28,9 @@ enum ReportTargetType {
   USER
   STICKY_NOTE
   STICKY_COMMENT
+  PROFILE_PHOTO
+  PAPER_PLANE
+  PROMPT_ANSWER
   COFFEE_MESSAGE
 }
 
@@ -208,6 +211,7 @@ model ContentReport {
 
   @@index([status, createdAt])
   @@index([targetType, targetId])
+  @@index([reporterId, createdAt])
 }
 
 // Moderation is deliberately reversible. Content remains in the database for
@@ -279,6 +283,9 @@ model Message {
 
   chat   Chat @relation(fields: [chatId], references: [id])
   sender User @relation(fields: [senderId], references: [id])
+
+  @@index([chatId, createdAt])
+  @@index([senderId, createdAt])
 }
 
 model DeskStickyNote {
@@ -351,6 +358,7 @@ model StickyNoteComment {
   author       User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   @@index([stickyNoteId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model AppNotification {

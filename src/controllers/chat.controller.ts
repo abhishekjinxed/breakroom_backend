@@ -43,7 +43,7 @@ export async function createMessage(
       chatId,
       text
     );
-    await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}` });
+    await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}`, suppressIfViewingChatId: chatId });
 
     return res.status(201).json({
       success: true,

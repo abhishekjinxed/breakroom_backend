@@ -102,6 +102,7 @@ io.use(async (socket, next) => {
 
 io.on("connection", (socket) => {
   const userId = socket.data.userId;
+  let lastTypingEventAt = 0;
   registerUserSocket(userId, socket.id);
   prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date() } }).catch(() => undefined);
   console.log(`🔌 User connected: ${userId}`);
@@ -193,7 +194,7 @@ io.on("connection", (socket) => {
         }
         const result = await sendMessage(userId, chatId, typeof text === "string" ? text : "");
         const message = result.message;
-        await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}` });
+        await createAppNotification({ userId: result.recipientId, type: "DIRECT_MESSAGE", title: "New message", detail: "You have a new private message in Breakroom.", link: `/chat/${chatId}`, suppressIfViewingChatId: chatId });
 
         io.to(`chat:${chatId}`).emit(
           "chat:message",
@@ -218,31 +219,10 @@ io.on("connection", (socket) => {
 
   socket.on("chat:typing", async (chatId: string) => {
     try {
-      const chat = await prisma.chat.findFirst({
-        where: {
-          id: chatId,
-          endedAt: null,
-          OR: [
-            {
-              user1Id: userId,
-            },
-            {
-              user2Id: userId,
-            },
-          ],
-        },
-      });
-
-      if (!chat) {
-        return;
-      }
-
-      socket.to(`chat:${chatId}`).emit(
-        "chat:typing",
-        {
-          userId,
-        }
-      );
+      if (typeof chatId !== "string" || chatId.length > 128 || !socket.rooms.has(`chat:${chatId}`)) return;
+      if (Date.now() - lastTypingEventAt < 300) return;
+      lastTypingEventAt = Date.now();
+      socket.to(`chat:${chatId}`).emit("chat:typing", { userId });
     } catch (error) {
       console.error(
         "Typing event error:",
@@ -251,10 +231,15 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("chat:stop-typing", (chatId: string) => {
-    socket.to(`chat:${chatId}`).emit("chat:stop-typing", {
-      userId,
-    });
+  socket.on("chat:stop-typing", async (chatId: string) => {
+    try {
+      if (typeof chatId !== "string" || chatId.length > 128 || !socket.rooms.has(`chat:${chatId}`)) return;
+      if (Date.now() - lastTypingEventAt < 300) return;
+      lastTypingEventAt = Date.now();
+      socket.to(`chat:${chatId}`).emit("chat:stop-typing", { userId });
+    } catch (error) {
+      console.error("Stop typing event error:", error);
+    }
   });
 
   socket.on("disconnect", () => {

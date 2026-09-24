@@ -76,6 +76,8 @@ export async function updateMyProfilePhoto(req: AuthenticatedRequest, res: Respo
   if (!req.userId || typeof req.params.photoId !== "string") return res.status(400).json({ success: false, message: "Invalid profile photo." });
   const parsed = photoUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Choose a valid photo visibility." });
+  const disabled = await prisma.moderationAction.findUnique({ where: { targetType_targetId: { targetType: "PROFILE_PHOTO", targetId: req.params.photoId } }, select: { id: true } });
+  if (disabled) return res.status(403).json({ success: false, message: "This photo was disabled by an administrator for not following Breakroom’s Terms of Use." });
   const photo = await prisma.profilePhoto.updateMany({ where: { id: req.params.photoId, ownerId: req.userId }, data: parsed.data });
   if (!photo.count) return res.status(404).json({ success: false, message: "Profile photo not found." });
   return res.json({ success: true });
@@ -184,12 +186,16 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
 
   const user = await prisma.user.findFirst({ where: { id: userId, deletedAt: null, status: { not: "DEACTIVATED" } }, select: publicProfileSelect });
   if (!user) return res.status(404).json({ success: false, message: "Member not found." });
-  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"]);
   const deskNoteExpiry = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId, deletedAt: null, OR: [{ createdAt: { gte: deskNoteExpiry } }, { pinnedAt: { not: null } }], ...(disabled.STICKY_NOTE.length ? { id: { notIn: disabled.STICKY_NOTE } } : {}) }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], take: 20, select: { id: true, text: true, mood: true, pinnedAt: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  const deskNotes = await prisma.deskStickyNote.findMany({ where: { authorId: userId, deletedAt: null, OR: [{ createdAt: { gte: deskNoteExpiry } }, { pinnedAt: { not: null } }] }, orderBy: [{ pinnedAt: "desc" }, { createdAt: "desc" }], take: 20, select: { id: true, text: true, mood: true, pinnedAt: true, createdAt: true, _count: { select: { applauds: true, comments: true } } } });
+  const disabled = await disabledTargetIdsFor(["STICKY_NOTE"], { STICKY_NOTE: deskNotes.map((note) => note.id) });
+  const unavailableNotes = new Set(disabled.STICKY_NOTE);
+  const visibleDeskNotes = deskNotes.filter((note) => !unavailableNotes.has(note.id));
   const profilePhotoCount = await prisma.profilePhoto.count({ where: { ownerId: userId } });
-  const visiblePhotos = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
-  if (!hasFullProfileAccess && deskNotes.length === 0 && visiblePhotos.length === 0 && !user.publicAvatarUrl && !user.publicFlair) return res.status(404).json({ success: false, message: "Member not found." });
+  const photoCandidates = await prisma.profilePhoto.findMany({ where: { ownerId: userId, OR: [{ visibility: "PUBLIC" }, { shares: { some: { recipientId: req.userId } } }] }, select: { id: true, url: true, visibility: true, createdAt: true }, orderBy: { createdAt: "asc" } });
+  const disabledPhotoIds = new Set((await prisma.moderationAction.findMany({ where: { targetType: "PROFILE_PHOTO", targetId: { in: photoCandidates.map((photo) => photo.id) } }, select: { targetId: true } })).map((action) => action.targetId));
+  const visiblePhotos = photoCandidates.filter((photo) => !disabledPhotoIds.has(photo.id));
+  if (!hasFullProfileAccess && visibleDeskNotes.length === 0 && visiblePhotos.length === 0 && !user.publicAvatarUrl && !user.publicFlair) return res.status(404).json({ success: false, message: "Member not found." });
   const { dateOfBirth, ...publicUser } = user;
-  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes, photos: visiblePhotos, photoAvailability: { total: profilePhotoCount, visible: visiblePhotos.length }, limitedProfile: !hasFullProfileAccess } });
+  return res.json({ success: true, user: { ...publicUser, bio: hasFullProfileAccess ? publicUser.bio : null, gender: hasFullProfileAccess ? publicUser.gender : null, socialLink: hasFullProfileAccess ? publicUser.socialLink : null, age: hasFullProfileAccess ? ageFromDateOfBirth(dateOfBirth) : null, deskNotes: visibleDeskNotes, photos: visiblePhotos, photoAvailability: { total: profilePhotoCount, visible: visiblePhotos.length }, limitedProfile: !hasFullProfileAccess } });
 }

@@ -12,10 +12,10 @@ type Game = Prisma.ConnectFourGameGetPayload<{ include: typeof includePlayers }>
 const moveSchema = z.object({ column: z.number().int().min(0).max(6) });
 const emptyBoard = ".".repeat(42);
 
-async function tidyGames() {
+async function tidyGames(userId: string) {
   const now = new Date();
-  await prisma.connectFourGame.updateMany({ where: { status: "WAITING", createdAt: { lte: new Date(now.getTime() - WAITING_TTL_MS) } }, data: { status: "CANCELLED", finishedAt: now, turnUserId: null } });
-  await prisma.connectFourGame.updateMany({ where: { status: "ACTIVE", updatedAt: { lte: new Date(now.getTime() - ACTIVE_TTL_MS) } }, data: { status: "CANCELLED", finishedAt: now, turnUserId: null } });
+  await prisma.connectFourGame.updateMany({ where: { status: "WAITING", createdAt: { lte: new Date(now.getTime() - WAITING_TTL_MS) }, OR: [{ playerRedId: userId }, { playerYellowId: userId }] }, data: { status: "CANCELLED", finishedAt: now, turnUserId: null } });
+  await prisma.connectFourGame.updateMany({ where: { status: "ACTIVE", updatedAt: { lte: new Date(now.getTime() - ACTIVE_TTL_MS) }, OR: [{ playerRedId: userId }, { playerYellowId: userId }] }, data: { status: "CANCELLED", finishedAt: now, turnUserId: null } });
 }
 
 async function blockedWith(userId: string, otherId: string) {
@@ -44,19 +44,19 @@ async function findCurrent(userId: string) {
 
 export async function currentConnectFour(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  await tidyGames();
+  await tidyGames(req.userId);
   const game = await findCurrent(req.userId) ?? await prisma.connectFourGame.findFirst({ where: { status: "FINISHED", finishedAt: { gte: new Date(Date.now() - 60 * 60 * 1000) }, OR: [{ playerRedId: req.userId }, { playerYellowId: req.userId }] }, orderBy: { finishedAt: "desc" }, include: includePlayers });
   return res.json({ success: true, game: game ? payload(game, req.userId) : null });
 }
 
 export async function joinConnectFour(req: AuthenticatedRequest, res: Response) {
   if (!req.userId) return res.status(401).json({ success: false, message: "Authentication required" });
-  await tidyGames();
+  await tidyGames(req.userId);
   const existing = await findCurrent(req.userId);
   if (existing) return res.json({ success: true, game: payload(existing, req.userId) });
 
   const candidates = await prisma.connectFourGame.findMany({
-    where: { status: "WAITING", playerYellowId: null, playerRedId: { not: req.userId }, playerRed: { deletedAt: null, status: { not: "DEACTIVATED" } } },
+    where: { status: "WAITING", createdAt: { gt: new Date(Date.now() - WAITING_TTL_MS) }, playerYellowId: null, playerRedId: { not: req.userId }, playerRed: { deletedAt: null, status: { not: "DEACTIVATED" } } },
     orderBy: { createdAt: "asc" }, select: { id: true, playerRedId: true }, take: 20,
   });
   for (const candidate of candidates) {
@@ -88,7 +88,7 @@ export async function moveConnectFour(req: AuthenticatedRequest, res: Response) 
   if (!req.userId || typeof req.params.gameId !== "string") return res.status(400).json({ success: false, message: "Invalid game." });
   const parsed = moveSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ success: false, message: "Choose a column from 1 to 7." });
-  await tidyGames();
+  await tidyGames(req.userId);
   const game = await prisma.connectFourGame.findFirst({ where: { id: req.params.gameId, status: "ACTIVE", OR: [{ playerRedId: req.userId }, { playerYellowId: req.userId }] } });
   if (!game) return res.status(409).json({ success: false, message: "This match is no longer available." });
   if (game.turnUserId !== req.userId) return res.status(409).json({ success: false, message: "It is your opponent’s turn." });

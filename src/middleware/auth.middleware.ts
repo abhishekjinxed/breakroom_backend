@@ -6,6 +6,23 @@ export interface AuthenticatedRequest extends Request {
   userId?: string;
 }
 
+const lastPresenceWrite = new Map<string, number>();
+const PRESENCE_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+
+function refreshPresence(userId: string) {
+  const now = Date.now();
+  const lastWrite = lastPresenceWrite.get(userId) ?? 0;
+  if (now - lastWrite < PRESENCE_WRITE_INTERVAL_MS) return;
+  lastPresenceWrite.set(userId, now);
+  // Presence is best-effort and should never make an otherwise valid request
+  // fail. Avoid a database write on every API call from active users.
+  prisma.user.update({ where: { id: userId }, data: { lastActiveAt: new Date(now) } }).catch(() => undefined);
+  if (lastPresenceWrite.size > 20_000) {
+    const oldestUserId = lastPresenceWrite.keys().next().value;
+    if (oldestUserId) lastPresenceWrite.delete(oldestUserId);
+  }
+}
+
 export async function authenticate(
   req: AuthenticatedRequest,
   res: Response,
@@ -42,7 +59,7 @@ export async function authenticate(
 
     // Presence drives random Paper Plane delivery. Refresh it for every
     // authenticated request so an open, signed-in desk is eligible.
-    await prisma.user.update({ where: { id: payload.userId }, data: { lastActiveAt: new Date() } });
+    refreshPresence(payload.userId);
 
     req.userId = payload.userId;
 
